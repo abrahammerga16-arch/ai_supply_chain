@@ -2,7 +2,11 @@ streamlit==1.38.0
 supabase==2.7.4
 python-dotenv==1.0.1
 scikit-learn==1.5.2
-pandas==2.2.3
-numpy==1.26.4
-joblib==1.4.2
-imbalanced-learn==0.12.3
+pandas
+numpy
+joblib
+matplotlib
+seaborn
+plotly
+tensorflow-cpu==2.15.0
+keras==2.15.0
