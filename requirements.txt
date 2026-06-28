@@ -1,4 +1,4 @@
-streamlit==1.38.0
+streamlit==1.40.0
 supabase==2.7.4
 python-dotenv==1.0.1
 scikit-learn==1.5.2
@@ -8,4 +8,3 @@ joblib
 matplotlib
 seaborn
 plotly
-pillow==11.2.1
