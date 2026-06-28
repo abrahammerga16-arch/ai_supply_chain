@@ -443,7 +443,6 @@ with tab_browse:
                         )
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
-
                         try:
                             risk = check_fraud_risk(
                                 sector=p["sector"], product=p["product_name"],
@@ -478,100 +477,137 @@ with tab_browse:
 
 
 # ════════════════════════════════════════════════════════════
-# TAB: BEST MATCHES (Merchant / Customer)
+# TAB: BEST MATCHES — ML model only (Merchant / Customer)
 # ════════════════════════════════════════════════════════════
-# ✅ FIX 3: wrapped with role guard so tab_matches is only accessed when it exists
 if role in ("merchant", "customer"):
     with tab_matches:
         st.subheader("🤖 AI-Recommended Products For You")
-        st.caption("Based on your region, buying preferences and past activity")
+        st.caption("Powered by the trained matching ML model — based on your buying preferences")
 
-        try:
-            all_products = supabase.table("products") \
-                .select("*, profiles(full_name, phone, region)") \
-                .eq("is_available", True).execute().data
-        except Exception as e:
-            st.error(f"Could not load products: {e}")
-            all_products = []
-
-        if not all_products:
-            st.info("No products available for matching.")
+        # Check merchant has preferences set — model needs them to be meaningful
+        has_prefs = profile.get("preferred_product") or profile.get("preferred_sector")
+        if not has_prefs:
+            st.warning(
+                "⚠️ Your buying preferences are not set. "
+                "Go to ⚙️ Profile to set your preferred sector, product, budget and quality "
+                "so the AI matching model can find the best products for you."
+            )
         else:
-            buyer_region = profile.get("region", "")
-            pref_sector = profile.get("preferred_sector", "")
-            pref_product = (profile.get("preferred_product") or "").lower()
-            pref_quality = profile.get("preferred_quality", "Any")
-            max_budget = float(profile.get("max_budget_birr") or 0)
+            try:
+                all_products = supabase.table("products") \
+                    .select("*, profiles(full_name, phone, region)") \
+                    .eq("is_available", True).execute().data
+            except Exception as e:
+                st.error(f"Could not load products: {e}")
+                all_products = []
 
-            def score_product(p):
-                score = 0.0
-                if p.get("region") == buyer_region:
-                    score += 30
-                if pref_sector and p.get("sector") == pref_sector:
-                    score += 25
-                if pref_product and pref_product in p.get("product_name", "").lower():
-                    score += 30
-                if pref_quality and pref_quality != "Any":
-                    if pref_quality == "A or B" and p.get("quality_grade") in ("A", "B"):
-                        score += 10
-                    elif p.get("quality_grade") == pref_quality:
-                        score += 10
-                if max_budget > 0 and p.get("price_birr", 0) <= max_budget:
-                    score += 5
-                return score
+            if not all_products:
+                st.info("No products available for matching right now.")
+            else:
+                # ── BUILD BUYER PROFILE for rank_merchants (used as the "listing" side inverted)
+                # We pass each product as the listing and the buyer's profile as a single-element
+                # merchant list, then rank — highest match_probability products rise to top
+                buyer_profile = {
+                    "id":                 st.session_state.user.id,
+                    "name":               profile.get("full_name", ""),
+                    "phone":              profile.get("phone"),
+                    "preferred_sector":   profile.get("preferred_sector"),
+                    "preferred_product":  profile.get("preferred_product"),
+                    "region":             profile.get("region"),
+                    "max_budget_birr":    float(profile.get("max_budget_birr") or 0),
+                    "preferred_quality":  profile.get("preferred_quality") or "Any",
+                    "needs_delivery":     profile.get("needs_delivery") or False,
+                    "is_verified":        True,
+                    "rating":             float(profile.get("rating") or 4.0),
+                    "total_transactions": int(profile.get("total_transactions") or 0),
+                    "years_in_business":  int(profile.get("years_in_business") or 1),
+                    "return_rate":        float(profile.get("return_rate") or 0.05),
+                    "payment_method":     profile.get("payment_method"),
+                }
 
-            scored = sorted(all_products, key=score_product, reverse=True)
-            top_products = scored[:10]
+                scored_products = []
+                for p in all_products:
+                    try:
+                        listing_data = {
+                            "sector":              p["sector"],
+                            "product_name":        p["product_name"],
+                            "price_birr":          p["price_birr"],
+                            "quantity":            p["quantity"],
+                            "quality_grade":       p["quality_grade"],
+                            "region":              p["region"],
+                            "is_verified":         1,
+                            "delivery_available":  1,
+                            "producer_rating":     4.0,
+                            "producer_experience": 3,
+                            "producer_tx":         0,
+                            "return_rate":         0.05,
+                        }
+                        results = rank_merchants(listing_data, [buyer_profile])
+                        if results:
+                            prob = results[0]["match_probability"]
+                            scored_products.append((prob, p))
+                    except Exception:
+                        # If model fails for this product, skip it entirely — no fallback
+                        continue
 
-            st.markdown(f"**Showing top {len(top_products)} matches for you:**")
+                # Sort by ML probability descending, keep only model-confident matches
+                scored_products.sort(key=lambda x: x[0], reverse=True)
+                # Only show products where model is at least 30% confident
+                confident = [(prob, p) for prob, p in scored_products if prob >= 0.30]
 
-            for p in top_products:
-                sc = score_product(p)
-                pct = min(int(sc), 100)
-                seller = p.get("profiles") or {}
+                if not confident:
+                    st.info(
+                        "🤖 The AI matching model did not find confident matches for your current preferences. "
+                        "Try updating your preferences in ⚙️ Profile or check back when more products are listed."
+                    )
+                else:
+                    st.markdown(f"**{len(confident)} product(s) matched by the AI model:**")
+                    for prob, p in confident[:10]:
+                        pct    = min(int(prob * 100), 100)
+                        seller = p.get("profiles") or {}
+                        match_color = "🟢" if pct >= 60 else ("🟡" if pct >= 40 else "🔴")
 
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 2])
-                    with c1:
-                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
-                        st.caption(p.get("description") or "No description")
-                        st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']}")
-                        match_color = "🟢" if pct >= 60 else ("🟡" if pct >= 30 else "🔴")
-                        st.caption(f"{match_color} Match Score: **{pct}%**")
-                    with c2:
-                        st.metric("Price", f"{p['price_birr']:,.0f} Birr")
-                        st.caption(f"Available: {p['quantity']} {p['unit']}")
-                    with c3:
-                        qty_to_order = st.number_input(
-                            "Qty", min_value=1.0, max_value=float(p["quantity"]),
-                            value=1.0, key=f"match_qty_{p['id']}"
-                        )
-                        total = qty_to_order * p["price_birr"]
-                        st.caption(f"Total: **{total:,.0f} Birr**")
-                        if st.button("🛒 Order Now", key=f"match_order_{p['id']}"):
-                            try:
-                                risk = check_fraud_risk(
-                                    sector=p["sector"], product=p["product_name"],
-                                    region=p["region"], payment_method="Bank Transfer",
-                                    quantity=qty_to_order, agreed_price_birr=p["price_birr"],
-                                    market_price_birr=p["price_birr"],
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([3, 2, 2])
+                            with c1:
+                                st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                                st.caption(p.get("description") or "No description")
+                                st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']}")
+                                st.caption(f"{match_color} AI Match Score: **{pct}%**")
+                            with c2:
+                                st.metric("Price", f"{p['price_birr']:,.0f} Birr")
+                                st.caption(f"Available: {p['quantity']} {p['unit']}")
+                            with c3:
+                                qty_to_order = st.number_input(
+                                    "Qty", min_value=1.0, max_value=float(p["quantity"]),
+                                    value=1.0, key=f"match_qty_{p['id']}"
                                 )
-                            except Exception:
-                                risk = {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
-                            try:
-                                supabase.table("orders").insert({
-                                    "product_id":        p["id"],
-                                    "buyer_id":          st.session_state.user.id,
-                                    "quantity_ordered":  qty_to_order,
-                                    "total_price_birr":  total,
-                                    "status":            "pending",
-                                    "fraud_risk_level":  risk["risk_level"],
-                                    "fraud_probability": risk.get("fraud_probability", 0.0),
-                                }).execute()
-                                st.success(f"✅ Order placed — {total:,.0f} Birr")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Order failed: {e}")
+                                total = qty_to_order * p["price_birr"]
+                                st.caption(f"Total: **{total:,.0f} Birr**")
+                                if st.button("🛒 Order Now", key=f"match_order_{p['id']}"):
+                                    try:
+                                        risk = check_fraud_risk(
+                                            sector=p["sector"], product=p["product_name"],
+                                            region=p["region"], payment_method="Bank Transfer",
+                                            quantity=qty_to_order, agreed_price_birr=p["price_birr"],
+                                            market_price_birr=p["price_birr"],
+                                        )
+                                    except Exception:
+                                        risk = {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
+                                    try:
+                                        supabase.table("orders").insert({
+                                            "product_id":        p["id"],
+                                            "buyer_id":          st.session_state.user.id,
+                                            "quantity_ordered":  qty_to_order,
+                                            "total_price_birr":  total,
+                                            "status":            "pending",
+                                            "fraud_risk_level":  risk["risk_level"],
+                                            "fraud_probability": risk.get("fraud_probability", 0.0),
+                                        }).execute()
+                                        st.success(f"✅ Order placed — {total:,.0f} Birr")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Order failed: {e}")
 
 
 # ════════════════════════════════════════════════════════════
@@ -632,8 +668,6 @@ if role == "producer":
     with tab_listings:
         st.subheader("📋 My Listings")
 
-        # ✅ FIX 1 & 2: correct indentation, correct query using product_id IN (...),
-        #               and orders variable always defined before use
         try:
             my_prods_raw = supabase.table("products").select("id") \
                 .eq("producer_id", st.session_state.user.id).execute().data
@@ -656,30 +690,35 @@ if role == "producer":
         if not orders:
             st.info("No orders have been placed on your products yet.")
         else:
-            total_spent = sum(o["total_price_birr"] for o in orders)
+            total_value = sum(o["total_price_birr"] for o in orders)
             pending     = sum(1 for o in orders if o["status"] == "pending")
 
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Orders", len(orders))
-            m2.metric("Total Value", f"{total_spent:,.0f} Birr")
+            m2.metric("Total Value", f"{total_value:,.0f} Birr")
             m3.metric("Pending", pending)
             st.divider()
 
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"], key="order_status_filter")
+                status_filter = st.selectbox(
+                    "Filter by Status",
+                    ["All", "pending", "confirmed", "delivered", "cancelled"],
+                    key="order_status_filter"
+                )
             with col_f2:
-                all_sectors = list(set(
-                    (o.get("products") or {}).get("sector", "Unknown") for o in orders
+                all_sectors = sorted(set(
+                    (o.get("products") or {}).get("sector", "Unknown")
+                    for o in orders if (o.get("products") or {}).get("sector")
                 ))
-                all_sectors = sorted([s for s in all_sectors if s])
                 sector_filter = st.selectbox("Filter by Sector", ["All"] + all_sectors, key="order_sector_filter")
 
             filtered_orders = orders
             if status_filter != "All":
                 filtered_orders = [o for o in filtered_orders if o["status"] == status_filter]
             if sector_filter != "All":
-                filtered_orders = [o for o in filtered_orders if (o.get("products") or {}).get("sector") == sector_filter]
+                filtered_orders = [o for o in filtered_orders if
+                                   (o.get("products") or {}).get("sector") == sector_filter]
 
             from collections import defaultdict
             grouped = defaultdict(list)
@@ -695,10 +734,10 @@ if role == "producer":
                     st.markdown(f"### 🏷️ {sector} — {len(sector_orders)} order(s) · {sector_total:,.0f} Birr")
 
                     for o in sector_orders:
-                        prod        = o.get("products") or {}
-                        pname       = prod.get("product_name", "Unknown product")
-                        unit        = prod.get("unit", "")
-                        seller_name = (prod.get("profiles") or {}).get("full_name", "Unknown buyer")
+                        prod       = o.get("products") or {}
+                        pname      = prod.get("product_name", "Unknown product")
+                        unit       = prod.get("unit", "")
+                        buyer_name = (prod.get("profiles") or {}).get("full_name", "Unknown buyer")
 
                         status_badge = {
                             "pending":   "🟡 Pending",
@@ -711,7 +750,7 @@ if role == "producer":
                             col_a, col_b, col_c = st.columns([3, 2, 2])
                             with col_a:
                                 st.markdown(f"**{pname}**")
-                                st.caption(f"Buyer: {seller_name} · Region: {prod.get('region', 'N/A')}")
+                                st.caption(f"Buyer: {buyer_name} · Region: {prod.get('region', 'N/A')}")
                                 st.caption(f"Qty: {o['quantity_ordered']} {unit}")
                                 if o.get("notes"):
                                     st.caption(f"📝 {o['notes']}")
@@ -739,7 +778,6 @@ if role == "producer":
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Update failed: {e}")
-
                     st.divider()
 
         # ── AGREEMENT FORM ──
@@ -756,13 +794,19 @@ if role == "producer":
             with st.container(border=True):
                 col_contact, col_terms = st.columns(2)
                 with col_contact:
-                    st.markdown("#### 📞 Merchant Contact")
+                    # ── MERCHANT PREFERENCES PANEL ──────────────────────────
+                    st.markdown("#### 👤 Merchant Profile & Preferences")
                     st.markdown(f"**Name:** {m['name']}")
                     st.markdown(f"**Region:** {m.get('region', 'N/A')}")
                     st.markdown(f"**Phone:** {m.get('phone') or 'Not provided'}")
-                    st.markdown(f"**Preferred Product:** {m.get('preferred_product') or 'N/A'}")
-                    st.markdown(f"**Payment Method:** {m.get('payment_method') or 'N/A'}")
-                    st.markdown(f"**Max Budget:** {m.get('max_budget_birr', 0):,.0f} Birr")
+                    st.divider()
+                    st.markdown("**🛒 Buying Preferences**")
+                    st.markdown(f"- Preferred Sector: **{m.get('preferred_sector') or 'N/A'}**")
+                    st.markdown(f"- Preferred Product: **{m.get('preferred_product') or 'N/A'}**")
+                    st.markdown(f"- Preferred Quality: **{m.get('preferred_quality') or 'Any'}**")
+                    st.markdown(f"- Max Budget: **{float(m.get('max_budget_birr') or 0):,.0f} Birr**")
+                    st.markdown(f"- Payment Method: **{m.get('payment_method') or 'N/A'}**")
+                    st.markdown(f"- Needs Delivery: **{'Yes' if m.get('needs_delivery') else 'No'}**")
 
                 with col_terms:
                     st.markdown("#### 📝 Agreement Terms")
@@ -814,11 +858,10 @@ if role == "producer":
                                     {"quantity": new_qty}
                                 ).eq("id", pid).execute()
 
-                            producer_profile = profile
                             pdf_bytes = generate_agreement_pdf(
-                                producer_name    = producer_profile.get("full_name", ""),
-                                producer_phone   = producer_profile.get("phone", ""),
-                                producer_region  = producer_profile.get("region", ""),
+                                producer_name    = profile.get("full_name", ""),
+                                producer_phone   = profile.get("phone", ""),
+                                producer_region  = profile.get("region", ""),
                                 merchant_name    = m["name"],
                                 merchant_phone   = m.get("phone", ""),
                                 merchant_region  = m.get("region", ""),
@@ -834,11 +877,11 @@ if role == "producer":
                                 notes            = agr_notes,
                                 agreement_id     = str(order_id),
                             )
-                            st.session_state.agreement_pdf          = pdf_bytes
-                            st.session_state.agreement_ref          = str(order_id)
+                            st.session_state.agreement_pdf           = pdf_bytes
+                            st.session_state.agreement_ref           = str(order_id)
                             st.session_state.agreement_merchant_name = m["name"]
-                            st.session_state.agreement_product_id   = None
-                            st.session_state.agreement_merchant      = None
+                            st.session_state.agreement_product_id    = None
+                            st.session_state.agreement_merchant       = None
                             st.rerun()
                         except Exception as e:
                             st.error(f"Failed: {e}")
@@ -923,11 +966,15 @@ if role == "producer":
                         st.markdown("**✏️ Edit Product**")
                         with st.form(f"edit_form_{p['id']}"):
                             e_name    = st.text_input("Product Name", value=p["product_name"])
-                            e_sector  = st.selectbox("Sector", SECTORS, index=SECTORS.index(p["sector"]) if p["sector"] in SECTORS else 0)
-                            e_quality = st.selectbox("Grade", GRADES, index=GRADES.index(p["quality_grade"]) if p["quality_grade"] in GRADES else 0)
-                            e_region  = st.selectbox("Region", REGIONS, index=REGIONS.index(p["region"]) if p["region"] in REGIONS else 0)
+                            e_sector  = st.selectbox("Sector", SECTORS,
+                                index=SECTORS.index(p["sector"]) if p["sector"] in SECTORS else 0)
+                            e_quality = st.selectbox("Grade", GRADES,
+                                index=GRADES.index(p["quality_grade"]) if p["quality_grade"] in GRADES else 0)
+                            e_region  = st.selectbox("Region", REGIONS,
+                                index=REGIONS.index(p["region"]) if p["region"] in REGIONS else 0)
                             e_qty     = st.number_input("Quantity", min_value=0.1, value=float(p["quantity"]), step=1.0)
-                            e_unit    = st.selectbox("Unit", UNITS, index=UNITS.index(p["unit"]) if p["unit"] in UNITS else 0)
+                            e_unit    = st.selectbox("Unit", UNITS,
+                                index=UNITS.index(p["unit"]) if p["unit"] in UNITS else 0)
                             e_price   = st.number_input("Price (Birr)", min_value=1.0, value=float(p["price_birr"]), step=10.0)
                             e_desc    = st.text_area("Description", value=p.get("description") or "")
 
@@ -959,80 +1006,119 @@ if role == "producer":
                                 st.rerun()
 
                     st.markdown("---")
-                    if st.button("🤖 Find Best Merchant Matches", key=f"match_{p['id']}", use_container_width=True):
-                        with st.spinner("Scoring merchants..."):
-                            try:
-                                merchants_raw = supabase.table("profiles").select("*").eq("role", "merchant").execute().data
-                                listing_data  = {
-                                    "sector": p["sector"], "product_name": p["product_name"],
-                                    "price_birr": p["price_birr"], "quantity": p["quantity"],
-                                    "quality_grade": p["quality_grade"], "region": p["region"],
-                                    "is_verified": 1, "delivery_available": 1,
-                                    "producer_rating": 4.0, "producer_experience": 3,
-                                    "producer_tx": 0, "return_rate": 0.05,
-                                }
-                                merchant_list = [{
-                                    "id": m["id"],
-                                    "name": m["full_name"],
-                                    "phone": m.get("phone"),
-                                    "preferred_sector":   m.get("preferred_sector"),
-                                    "preferred_product":  m.get("preferred_product"),
-                                    "region":             m.get("region"),
-                                    "max_budget_birr":    m.get("max_budget_birr") or 0,
-                                    "preferred_quality":  m.get("preferred_quality") or "Any",
-                                    "needs_delivery":     m.get("needs_delivery") or False,
-                                    "is_verified":        m.get("is_verified", True),
-                                    "rating":             m.get("rating") or 4.0,
-                                    "total_transactions": m.get("total_transactions") or 0,
-                                    "years_in_business":  m.get("years_in_business") or 1,
-                                    "return_rate":        m.get("return_rate") or 0.05,
-                                    "payment_method":     m.get("payment_method"),
-                                } for m in merchants_raw]
 
-                                if not merchant_list:
+                    # ── FIND BEST MERCHANT MATCHES (ML model only) ──────────────
+                    if st.button("🤖 Find Best Merchant Matches", key=f"match_{p['id']}", use_container_width=True):
+                        with st.spinner("Running AI matching model..."):
+                            try:
+                                merchants_raw = supabase.table("profiles").select("*") \
+                                    .eq("role", "merchant").execute().data
+
+                                if not merchants_raw:
                                     st.warning("No merchants registered yet.")
                                 else:
-                                    ranked      = rank_merchants(listing_data, merchant_list)
-                                    top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
+                                    listing_data = {
+                                        "sector":              p["sector"],
+                                        "product_name":        p["product_name"],
+                                        "price_birr":          p["price_birr"],
+                                        "quantity":            p["quantity"],
+                                        "quality_grade":       p["quality_grade"],
+                                        "region":              p["region"],
+                                        "is_verified":         1,
+                                        "delivery_available":  1,
+                                        "producer_rating":     4.0,
+                                        "producer_experience": 3,
+                                        "producer_tx":         0,
+                                        "return_rate":         0.05,
+                                    }
+                                    merchant_list = [{
+                                        "id":                 m["id"],
+                                        "name":               m["full_name"],
+                                        "phone":              m.get("phone"),
+                                        "preferred_sector":   m.get("preferred_sector"),
+                                        "preferred_product":  m.get("preferred_product"),
+                                        "region":             m.get("region"),
+                                        "max_budget_birr":    float(m.get("max_budget_birr") or 0),
+                                        "preferred_quality":  m.get("preferred_quality") or "Any",
+                                        "needs_delivery":     m.get("needs_delivery") or False,
+                                        "is_verified":        m.get("is_verified", True),
+                                        "rating":             float(m.get("rating") or 4.0),
+                                        "total_transactions": int(m.get("total_transactions") or 0),
+                                        "years_in_business":  int(m.get("years_in_business") or 1),
+                                        "return_rate":        float(m.get("return_rate") or 0.05),
+                                        "payment_method":     m.get("payment_method"),
+                                    } for m in merchants_raw]
+
+                                    ranked = rank_merchants(listing_data, merchant_list)
+
+                                    # Only show merchants the ML model is confident about
+                                    top_matches = [r for r in ranked if r["match_probability"] >= 0.30][:5]
+
                                     if not top_matches:
-                                        st.info("No strong matches found.")
+                                        st.info(
+                                            "🤖 The AI model found no confident merchant matches "
+                                            "for this product. Try adjusting the product details "
+                                            "or wait for more merchants to register."
+                                        )
                                     else:
-                                        st.markdown("**Top Matched Merchants:**")
+                                        st.markdown("**🤖 Top Merchant Matches (AI Model):**")
                                         for r in top_matches:
-                                            pct   = r["match_probability"] * 100
-                                            badge = "🟢" if r["is_match"] == 1 else "🟡"
-                                            mcol1, mcol2 = st.columns([3, 1])
-                                            with mcol1:
-                                                st.write(
-                                                    f"{badge} **{r['name']}** — {pct:.1f}% match · "
-                                                    f"{r.get('region', 'N/A')} · "
-                                                    f"wants {r.get('preferred_product') or 'N/A'} · "
-                                                    f"📞 {r.get('phone') or 'N/A'}"
-                                                )
-                                            with mcol2:
-                                                if st.button(
-                                                    "🤝 Agreement",
-                                                    key=f"agr_{p['id']}_{r['id']}",
-                                                    use_container_width=True
-                                                ):
-                                                    st.session_state.agreement_product_id = p["id"]
-                                                    st.session_state.agreement_merchant   = r
-                                                    st.rerun()
+                                            pct   = int(r["match_probability"] * 100)
+                                            badge = "🟢" if pct >= 60 else ("🟡" if pct >= 40 else "🔴")
+
+                                            with st.container(border=True):
+                                                mc1, mc2 = st.columns([4, 1])
+                                                with mc1:
+                                                    st.markdown(
+                                                        f"{badge} **{r['name']}** — "
+                                                        f"AI Match: **{pct}%** · "
+                                                        f"📍 {r.get('region', 'N/A')} · "
+                                                        f"📞 {r.get('phone') or 'N/A'}"
+                                                    )
+                                                    # ── MERCHANT PREFERENCES VISIBLE TO PRODUCER ──
+                                                    with st.expander("📋 View Merchant Preferences"):
+                                                        pc1, pc2 = st.columns(2)
+                                                        with pc1:
+                                                            st.markdown(f"**Preferred Sector:** {r.get('preferred_sector') or 'N/A'}")
+                                                            st.markdown(f"**Preferred Product:** {r.get('preferred_product') or 'N/A'}")
+                                                            st.markdown(f"**Preferred Quality:** {r.get('preferred_quality') or 'Any'}")
+                                                        with pc2:
+                                                            st.markdown(f"**Max Budget:** {float(r.get('max_budget_birr') or 0):,.0f} Birr")
+                                                            st.markdown(f"**Payment Method:** {r.get('payment_method') or 'N/A'}")
+                                                            st.markdown(f"**Needs Delivery:** {'Yes' if r.get('needs_delivery') else 'No'}")
+                                                with mc2:
+                                                    if st.button(
+                                                        "🤝 Agreement",
+                                                        key=f"agr_{p['id']}_{r['id']}",
+                                                        use_container_width=True
+                                                    ):
+                                                        st.session_state.agreement_product_id = p["id"]
+                                                        st.session_state.agreement_merchant   = r
+                                                        st.rerun()
+
                             except Exception as e:
                                 st.error(f"Matching failed: {e}")
 
+                    # ── DEMAND FORECAST ──
                     try:
                         fc = forecast_demand(p["product_name"], p["region"], weeks_ahead=4)
                     except Exception:
                         fc = None
 
                     if fc and "error" not in fc:
-                        trend_icon = {"up": "🟢 ↑ Rising", "down": "🔴 ↓ Falling", "stable": "🟡 → Stable"}[fc["trend"]]
+                        trend_icon = {
+                            "up":     "🟢 ↑ Rising",
+                            "down":   "🔴 ↓ Falling",
+                            "stable": "🟡 → Stable"
+                        }[fc["trend"]]
                         st.caption(f"📈 Demand Forecast | {trend_icon} | R²={fc['r2']:.2f} RMSE=±{fc['rmse']:,.0f}")
                         all_labels  = [f"W-{7-i}" for i in range(8)] + [f"+{w}w" for w in fc["weeks"]]
                         hist_series = fc["historical"] + [None] * 4
                         fc_series   = [None] * 7 + [fc["historical"][-1]] + fc["forecast"]
-                        chart_data  = pd.DataFrame({"Actual": hist_series, "Forecast": fc_series}, index=all_labels)
+                        chart_data  = pd.DataFrame(
+                            {"Actual": hist_series, "Forecast": fc_series},
+                            index=all_labels
+                        )
                         st.line_chart(chart_data, color=["#4A90D9", "#F5A623"], height=180)
                     else:
                         st.caption("📈 Demand forecast unavailable.")
@@ -1080,8 +1166,12 @@ if role in ("merchant", "customer"):
             m3.metric("Pending", pending)
             st.divider()
 
-            status_filter   = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"])
-            filtered_orders = orders if status_filter == "All" else [o for o in orders if o["status"] == status_filter]
+            status_filter   = st.selectbox(
+                "Filter by Status",
+                ["All", "pending", "confirmed", "delivered", "cancelled"]
+            )
+            filtered_orders = orders if status_filter == "All" \
+                else [o for o in orders if o["status"] == status_filter]
 
             for o in filtered_orders:
                 prod        = o.get("products") or {}
@@ -1143,7 +1233,8 @@ if role in ("merchant", "customer"):
                                 index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
                                 key=f"upd_status_{o['id']}"
                             )
-                            unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
+                            unit_price = o["total_price_birr"] / o["quantity_ordered"] \
+                                if o["quantity_ordered"] else 0
                             new_total  = new_qty * unit_price
                             st.caption(f"New Total: **{new_total:,.0f} Birr**")
 
@@ -1174,17 +1265,22 @@ with tab_profile:
         st.caption("Set your preferences to power AI product matching")
 
         pref_sector   = st.selectbox("Preferred Sector", SECTORS,
-            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+            index=SECTORS.index(profile.get("preferred_sector"))
+            if profile.get("preferred_sector") in SECTORS else 0,
             key="edit_pref_sector")
-        pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+        pref_product  = st.text_input("Preferred Product",
+            value=profile.get("preferred_product") or "", key="edit_pref_product")
         pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
             value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
         pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
             index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
             key="edit_pref_quality")
-        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
-        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
-            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+        pref_delivery = st.checkbox("I need delivery",
+            value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+        pref_payment  = st.selectbox("Payment Method",
+            ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(
+                profile.get("payment_method") or "Cash"),
             key="edit_pref_payment")
 
         if st.button("💾 Save Preferences", use_container_width=True, key="prof_save_merchant"):
