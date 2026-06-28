@@ -480,6 +480,7 @@ with tab_browse:
 # ════════════════════════════════════════════════════════════
 # TAB: BEST MATCHES (Merchant / Customer)
 # ════════════════════════════════════════════════════════════
+# ✅ FIX 3: wrapped with role guard so tab_matches is only accessed when it exists
 if role in ("merchant", "customer"):
     with tab_matches:
         st.subheader("🤖 AI-Recommended Products For You")
@@ -631,6 +632,8 @@ if role == "producer":
     with tab_listings:
         st.subheader("📋 My Listings")
 
+        # ✅ FIX 1 & 2: correct indentation, correct query using product_id IN (...),
+        #               and orders variable always defined before use
         try:
             my_prods_raw = supabase.table("products").select("id") \
                 .eq("producer_id", st.session_state.user.id).execute().data
@@ -639,28 +642,29 @@ if role == "producer":
             my_product_ids = []
 
         if my_product_ids:
-         try:
-            orders = supabase.table("orders") \
-                .select("*, products(product_name, unit, region, sector, profiles(full_name))") \
-                .eq("buyer_id", st.session_state.user.id) \
-                .order("created_at", desc=True).execute().data
-         except Exception as e:
-            st.error(f"Could not load orders: {e}")
+            try:
+                orders = supabase.table("orders") \
+                    .select("*, products(product_name, unit, region, sector, profiles(full_name))") \
+                    .in_("product_id", my_product_ids) \
+                    .order("created_at", desc=True).execute().data
+            except Exception as e:
+                st.error(f"Could not load orders on your products: {e}")
+                orders = []
+        else:
             orders = []
 
         if not orders:
-            st.info("You haven't placed any orders yet. Browse products to get started.")
+            st.info("No orders have been placed on your products yet.")
         else:
             total_spent = sum(o["total_price_birr"] for o in orders)
             pending     = sum(1 for o in orders if o["status"] == "pending")
 
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Orders", len(orders))
-            m2.metric("Total Spent", f"{total_spent:,.0f} Birr")
+            m2.metric("Total Value", f"{total_spent:,.0f} Birr")
             m3.metric("Pending", pending)
             st.divider()
 
-            # ── FILTERS ──
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"], key="order_status_filter")
@@ -671,14 +675,12 @@ if role == "producer":
                 all_sectors = sorted([s for s in all_sectors if s])
                 sector_filter = st.selectbox("Filter by Sector", ["All"] + all_sectors, key="order_sector_filter")
 
-            # ── APPLY FILTERS ──
             filtered_orders = orders
             if status_filter != "All":
                 filtered_orders = [o for o in filtered_orders if o["status"] == status_filter]
             if sector_filter != "All":
                 filtered_orders = [o for o in filtered_orders if (o.get("products") or {}).get("sector") == sector_filter]
 
-            # ── GROUP BY SECTOR ──
             from collections import defaultdict
             grouped = defaultdict(list)
             for o in filtered_orders:
@@ -696,7 +698,7 @@ if role == "producer":
                         prod        = o.get("products") or {}
                         pname       = prod.get("product_name", "Unknown product")
                         unit        = prod.get("unit", "")
-                        seller_name = (prod.get("profiles") or {}).get("full_name", "Unknown seller")
+                        seller_name = (prod.get("profiles") or {}).get("full_name", "Unknown buyer")
 
                         status_badge = {
                             "pending":   "🟡 Pending",
@@ -709,7 +711,7 @@ if role == "producer":
                             col_a, col_b, col_c = st.columns([3, 2, 2])
                             with col_a:
                                 st.markdown(f"**{pname}**")
-                                st.caption(f"Seller: {seller_name} · Region: {prod.get('region', 'N/A')}")
+                                st.caption(f"Buyer: {seller_name} · Region: {prod.get('region', 'N/A')}")
                                 st.caption(f"Qty: {o['quantity_ordered']} {unit}")
                                 if o.get("notes"):
                                     st.caption(f"📝 {o['notes']}")
@@ -722,56 +724,25 @@ if role == "producer":
                                     rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                                     st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                                 if o["status"] == "pending":
-                                    if st.button("❌ Cancel", key=f"cancel_{o['id']}"):
-                                        try:
-                                            supabase.table("orders").update(
-                                                {"status": "cancelled"}
-                                            ).eq("id", o["id"]).execute()
-                                            st.success("Order cancelled.")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Cancel failed: {e}")
-
-                            # ── UPDATE ORDER (merchant only) ──
-                            if role == "merchant" and o["status"] not in ("cancelled", "delivered"):
-                                with st.expander("✏️ Update Order"):
-                                    new_qty = st.number_input(
-                                        "New Quantity",
-                                        min_value=0.1,
-                                        value=float(o["quantity_ordered"]),
-                                        step=1.0,
-                                        key=f"upd_qty_{o['id']}"
-                                    )
-                                    new_notes = st.text_area(
-                                        "Notes",
-                                        value=o.get("notes") or "",
-                                        key=f"upd_notes_{o['id']}"
-                                    )
                                     new_status = st.selectbox(
                                         "Update Status",
                                         ["pending", "confirmed", "delivered", "cancelled"],
-                                        index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
-                                        key=f"upd_status_{o['id']}"
+                                        index=0,
+                                        key=f"prod_status_{o['id']}"
                                     )
-                                    unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
-                                    new_total  = new_qty * unit_price
-                                    st.caption(f"New Total: **{new_total:,.0f} Birr**")
-
-                                    if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
+                                    if st.button("💾 Update", key=f"prod_update_{o['id']}", use_container_width=True):
                                         try:
-                                            supabase.table("orders").update({
-                                                "quantity_ordered": new_qty,
-                                                "total_price_birr": new_total,
-                                                "notes":            new_notes,
-                                                "status":           new_status,
-                                            }).eq("id", o["id"]).execute()
-                                            st.success("✅ Order updated!")
+                                            supabase.table("orders").update(
+                                                {"status": new_status}
+                                            ).eq("id", o["id"]).execute()
+                                            st.success("Status updated.")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Update failed: {e}")
 
                     st.divider()
 
+        # ── AGREEMENT FORM ──
         if st.session_state.agreement_product_id and st.session_state.agreement_merchant:
             m   = st.session_state.agreement_merchant
             pid = st.session_state.agreement_product_id
@@ -899,6 +870,7 @@ if role == "producer":
                 st.rerun()
             st.divider()
 
+        # ── PRODUCT LISTINGS ──
         try:
             my_products = supabase.table("products").select("*") \
                 .eq("producer_id", st.session_state.user.id) \
@@ -1151,7 +1123,6 @@ if role in ("merchant", "customer"):
                                 except Exception as e:
                                     st.error(f"Cancel failed: {e}")
 
-                    # ── UPDATE ORDER (merchant only) ──
                     if role == "merchant" and o["status"] not in ("cancelled", "delivered"):
                         with st.expander("✏️ Update Order"):
                             new_qty = st.number_input(
@@ -1172,8 +1143,6 @@ if role in ("merchant", "customer"):
                                 index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
                                 key=f"upd_status_{o['id']}"
                             )
-
-                            # recalculate total based on new qty
                             unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
                             new_total  = new_qty * unit_price
                             st.caption(f"New Total: **{new_total:,.0f} Birr**")
@@ -1190,6 +1159,7 @@ if role in ("merchant", "customer"):
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Update failed: {e}")
+
 
 # ════════════════════════════════════════════════════════════
 # TAB: PROFILE (All roles)
