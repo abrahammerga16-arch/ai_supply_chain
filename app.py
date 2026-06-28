@@ -1258,4 +1258,3 @@ with tab_profile:
             c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
         except Exception as e:
             st.error(f"Could not load stats: {e}")
-
