@@ -496,11 +496,11 @@ if role in ("merchant", "customer"):
         if not all_products:
             st.info("No products available for matching.")
         else:
-            buyer_region   = profile.get("region", "")
-            pref_sector    = profile.get("preferred_sector", "")
-           pref_product   = (profile.get("preferred_product") or "").lower()
-            pref_quality   = profile.get("preferred_quality", "Any")
-            max_budget     = float(profile.get("max_budget_birr") or 0)
+           buyer_region = profile.get("region", "")
+            pref_sector = profile.get("preferred_sector", "")
+            pref_product = (profile.get("preferred_product") or "").lower()
+            pref_quality = profile.get("preferred_quality", "Any")
+            max_budget = float(profile.get("max_budget_birr") or 0)
 
             def score_product(p):
                 score = 0.0
