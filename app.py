@@ -2,8 +2,20 @@
 AI-Powered Supply Chain System — Stage 5: Demand Forecasting
 Wolaita Sodo University | Department of ECE
 """
+import io
+import base64
+import datetime
 import streamlit as st
 import pandas as pd
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+)
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+
 from src.db import get_supabase_client
 from src.matching_engine import rank_merchants
 from src.price_engine import recommend_price
@@ -18,7 +30,8 @@ st.set_page_config(
 )
 
 # ── SESSION STATE INIT ───────────────────────────────────────
-for key in ["user", "profile", "edit_product_id"]:
+for key in ["user", "profile", "edit_product_id", "show_pref_form",
+            "agreement_product_id", "agreement_merchant"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
@@ -29,12 +42,253 @@ except ValueError as e:
     st.stop()
 
 
+# ── PDF AGREEMENT GENERATOR ───────────────────────────────────
+def generate_agreement_pdf(producer_name, producer_phone, producer_region,
+                            merchant_name, merchant_phone, merchant_region,
+                            product_name, sector, quality_grade,
+                            quantity, unit, price_per_unit, total_price,
+                            delivery_date, payment_method, notes,
+                            agreement_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm,
+        topMargin=2*cm, bottomMargin=2*cm
+    )
+    styles = getSampleStyleSheet()
+
+    # Custom styles
+    title_style = ParagraphStyle(
+        "AgrTitle", parent=styles["Title"],
+        fontSize=18, textColor=colors.HexColor("#1a5276"),
+        spaceAfter=6, alignment=TA_CENTER
+    )
+    subtitle_style = ParagraphStyle(
+        "AgrSub", parent=styles["Normal"],
+        fontSize=10, textColor=colors.HexColor("#555555"),
+        alignment=TA_CENTER, spaceAfter=4
+    )
+    section_style = ParagraphStyle(
+        "AgrSection", parent=styles["Heading2"],
+        fontSize=12, textColor=colors.HexColor("#1a5276"),
+        spaceBefore=14, spaceAfter=6,
+        borderPad=4,
+    )
+    body_style = ParagraphStyle(
+        "AgrBody", parent=styles["Normal"],
+        fontSize=10, leading=16, spaceAfter=4
+    )
+    small_style = ParagraphStyle(
+        "AgrSmall", parent=styles["Normal"],
+        fontSize=9, textColor=colors.HexColor("#666666"), leading=14
+    )
+    center_style = ParagraphStyle(
+        "AgrCenter", parent=styles["Normal"],
+        fontSize=10, alignment=TA_CENTER, leading=16
+    )
+
+    story = []
+
+    # ── HEADER ──
+    story.append(Paragraph("FEDERAL DEMOCRATIC REPUBLIC OF ETHIOPIA", subtitle_style))
+    story.append(Paragraph("Ethiopian AI Supply Chain Platform", subtitle_style))
+    story.append(Spacer(1, 6))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a5276")))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("COMMERCIAL SUPPLY AGREEMENT", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#1a5276")))
+    story.append(Spacer(1, 10))
+
+    # Agreement reference & date
+    ref_data = [
+        ["Agreement Reference:", f"AGR-{agreement_id[:8].upper()}",
+         "Date:", datetime.date.today().strftime("%d %B %Y")],
+    ]
+    ref_table = Table(ref_data, colWidths=[4*cm, 6*cm, 2.5*cm, 4.5*cm])
+    ref_table.setStyle(TableStyle([
+        ("FONTNAME",    (0,0), (-1,-1), "Helvetica-Bold"),
+        ("FONTSIZE",    (0,0), (-1,-1), 9),
+        ("TEXTCOLOR",  (0,0), (0,-1), colors.HexColor("#1a5276")),
+        ("TEXTCOLOR",  (2,0), (2,-1), colors.HexColor("#1a5276")),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    story.append(ref_table)
+    story.append(Spacer(1, 14))
+
+    # ── PARTIES ──
+    story.append(Paragraph("1. PARTIES TO THE AGREEMENT", section_style))
+
+    parties_data = [
+        ["", "PRODUCER (Seller)", "MERCHANT (Buyer)"],
+        ["Full Name",    producer_name,   merchant_name],
+        ["Region",       producer_region, merchant_region],
+        ["Phone",        producer_phone or "—", merchant_phone or "—"],
+        ["Role",         "Producer / Seller", "Merchant / Buyer"],
+    ]
+    parties_table = Table(parties_data, colWidths=[3.5*cm, 8*cm, 6*cm])
+    parties_table.setStyle(TableStyle([
+        ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#1a5276")),
+        ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
+        ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTNAME",    (0,1), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE",    (0,0), (-1,-1), 9),
+        ("BACKGROUND",  (0,1), (-1,-1), colors.HexColor("#eaf2fb")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1),
+         [colors.HexColor("#eaf2fb"), colors.white]),
+        ("GRID",        (0,0), (-1,-1), 0.5, colors.HexColor("#aaaaaa")),
+        ("ALIGN",       (0,0), (-1,-1), "LEFT"),
+        ("TOPPADDING",  (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(parties_table)
+    story.append(Spacer(1, 14))
+
+    # ── GOODS ──
+    story.append(Paragraph("2. SUBJECT MATTER — GOODS & TERMS", section_style))
+
+    goods_data = [
+        ["Field", "Details"],
+        ["Product Name",      product_name],
+        ["Sector",            sector],
+        ["Quality Grade",     f"Grade {quality_grade}"],
+        ["Quantity",          f"{quantity:,.1f} {unit}"],
+        ["Price per Unit",    f"{price_per_unit:,.2f} Birr"],
+        ["Total Contract Value", f"{total_price:,.2f} Birr"],
+        ["Payment Method",   payment_method],
+        ["Delivery Date",    str(delivery_date)],
+    ]
+    goods_table = Table(goods_data, colWidths=[5*cm, 12*cm])
+    goods_table.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#117a65")),
+        ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+        ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTNAME",     (0,1), (0,-1), "Helvetica-Bold"),
+        ("FONTSIZE",     (0,0), (-1,-1), 9),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1),
+         [colors.HexColor("#e8f8f5"), colors.white]),
+        ("GRID",         (0,0), (-1,-1), 0.5, colors.HexColor("#aaaaaa")),
+        ("ALIGN",        (0,0), (-1,-1), "LEFT"),
+        ("TOPPADDING",   (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
+        ("LEFTPADDING",  (0,0), (-1,-1), 6),
+        # Highlight total row
+        ("BACKGROUND",  (0,6), (-1,6), colors.HexColor("#d5f5e3")),
+        ("FONTNAME",    (0,6), (-1,6), "Helvetica-Bold"),
+        ("TEXTCOLOR",   (1,6), (1,6),  colors.HexColor("#117a65")),
+        ("FONTSIZE",    (1,6), (1,6),  11),
+    ]))
+    story.append(goods_table)
+    story.append(Spacer(1, 14))
+
+    # ── ADDITIONAL NOTES ──
+    if notes and notes.strip():
+        story.append(Paragraph("3. ADDITIONAL NOTES & SPECIAL CONDITIONS", section_style))
+        story.append(Paragraph(notes, body_style))
+        story.append(Spacer(1, 10))
+        next_section = 4
+    else:
+        next_section = 3
+
+    # ── TERMS & CONDITIONS ──
+    story.append(Paragraph(f"{next_section}. GENERAL TERMS AND CONDITIONS", section_style))
+    terms = [
+        ("Quality Assurance",
+         "The Producer guarantees that goods delivered shall conform to the agreed quality grade "
+         "as specified above. Any goods failing to meet this standard shall be rejected and replaced "
+         "at the Producer's cost within 7 business days."),
+        ("Payment Terms",
+         f"Payment shall be made via {payment_method} upon delivery and confirmation of goods. "
+         "Late payment beyond 14 days of delivery date shall attract a penalty of 2% per month "
+         "on the outstanding amount."),
+        ("Delivery & Transfer of Risk",
+         f"The Producer shall deliver goods by {delivery_date}. Risk and title transfer to the "
+         "Merchant upon successful delivery and written or verbal acceptance. Delivery delays "
+         "exceeding 7 days without notice shall entitle the Merchant to cancel this agreement."),
+        ("Dispute Resolution",
+         "Any disputes arising from this agreement shall first be resolved through good-faith "
+         "negotiation between the parties. Failing resolution within 30 days, disputes shall be "
+         "referred to the Ethiopian Commercial Dispute Resolution Centre or relevant regional "
+         "trade bureau."),
+        ("Force Majeure",
+         "Neither party shall be liable for delays or failures caused by circumstances beyond "
+         "their reasonable control including natural disasters, government restrictions, or "
+         "civil unrest, provided written notice is given within 5 days of such event."),
+        ("Governing Law",
+         "This agreement is governed by the Commercial Code of Ethiopia (Proclamation No. 1243/2021) "
+         "and applicable regional trade regulations."),
+    ]
+    for i, (heading, text) in enumerate(terms, 1):
+        story.append(Paragraph(
+            f"<b>{next_section}.{i}  {heading}</b>", body_style
+        ))
+        story.append(Paragraph(text, small_style))
+        story.append(Spacer(1, 4))
+
+    story.append(Spacer(1, 14))
+
+    # ── SIGNATURES ──
+    story.append(Paragraph(f"{next_section + 1}. SIGNATURES", section_style))
+    story.append(Paragraph(
+        "By signing below, both parties confirm they have read, understood, and agreed to all "
+        "terms and conditions set forth in this agreement.",
+        small_style
+    ))
+    story.append(Spacer(1, 16))
+
+    sig_data = [
+        ["PRODUCER (Seller)", "", "MERCHANT (Buyer)", ""],
+        [f"Name: {producer_name}", "", f"Name: {merchant_name}", ""],
+        ["", "", "", ""],
+        ["Signature: ____________________", "", "Signature: ____________________", ""],
+        ["", "", "", ""],
+        ["Date: ____________________", "", "Date: ____________________", ""],
+        ["", "", "", ""],
+        [f"Phone: {producer_phone or '_______________'}", "",
+         f"Phone: {merchant_phone or '_______________'}", ""],
+        [f"Region: {producer_region}", "", f"Region: {merchant_region}", ""],
+    ]
+    sig_table = Table(sig_data, colWidths=[7.5*cm, 1*cm, 7.5*cm, 1*cm])
+    sig_table.setStyle(TableStyle([
+        ("FONTNAME",  (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE",  (0,0), (-1,-1), 9),
+        ("TEXTCOLOR", (0,0), (0,0), colors.HexColor("#1a5276")),
+        ("TEXTCOLOR", (2,0), (2,0), colors.HexColor("#117a65")),
+        ("TOPPADDING",(0,0), (-1,-1), 4),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 4),
+        ("BOX",       (0,0), (0,-1), 0.5, colors.HexColor("#aaaaaa")),
+        ("BOX",       (2,0), (2,-1), 0.5, colors.HexColor("#aaaaaa")),
+        ("BACKGROUND",(0,0), (0,0), colors.HexColor("#eaf2fb")),
+        ("BACKGROUND",(2,0), (2,0), colors.HexColor("#e8f8f5")),
+        ("LEFTPADDING",(0,0),(-1,-1), 8),
+    ]))
+    story.append(sig_table)
+    story.append(Spacer(1, 20))
+
+    # ── FOOTER ──
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#cccccc")))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        f"This agreement was facilitated by the Ethiopian AI Supply Chain Platform | "
+        f"Wolaita Sodo University — Department of ECE | "
+        f"Generated: {datetime.datetime.now().strftime('%d %B %Y, %H:%M')} | "
+        f"Ref: AGR-{agreement_id[:8].upper()}",
+        ParagraphStyle("Footer", parent=styles["Normal"],
+                       fontSize=7, textColor=colors.HexColor("#999999"),
+                       alignment=TA_CENTER)
+    ))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
 def get_profile(user_id):
     res = supabase.table("profiles").select("*").eq("id", user_id).execute()
     return res.data[0] if res.data else None
 
-def sign_up(email, password, full_name, role, region, phone, merchant_prefs=None):
+def sign_up(email, password, full_name, role, region, phone):
     if len(password) < 8:
         return False, "Password must be at least 8 characters long."
     if not any(c.isdigit() for c in password):
@@ -46,9 +300,10 @@ def sign_up(email, password, full_name, role, region, phone, merchant_prefs=None
         if auth_res.user is None:
             return False, "Sign up failed. Email may already be registered."
         user_id = auth_res.user.id
-        profile_data = {"id": user_id, "full_name": full_name, "role": role, "region": region, "phone": phone}
-        if role == "merchant" and merchant_prefs:
-            profile_data.update(merchant_prefs)
+        profile_data = {
+            "id": user_id, "full_name": full_name, "role": role,
+            "region": region, "phone": phone
+        }
         supabase.table("profiles").insert(profile_data).execute()
         return True, "Account created! Please log in."
     except Exception as e:
@@ -67,8 +322,9 @@ def sign_in(email, password):
 
 def sign_out():
     supabase.auth.sign_out()
-    st.session_state.user = None
-    st.session_state.profile = None
+    for key in ["user", "profile", "edit_product_id", "show_pref_form",
+                "agreement_product_id", "agreement_merchant"]:
+        st.session_state[key] = None
 
 REGIONS = ["Addis Ababa", "Oromia", "SNNPR", "Amhara", "Tigray", "Sidama", "Dire Dawa", "Harari"]
 SECTORS = ["Agriculture", "Manufacturing", "Handicrafts", "Livestock", "Food Processing", "Textiles", "Services"]
@@ -89,12 +345,15 @@ with st.sidebar:
             login_email = st.text_input("Email", key="login_email")
             login_pass  = st.text_input("Password", type="password", key="login_pass")
             if st.button("Log In", use_container_width=True):
-                ok, msg = sign_in(login_email, login_pass)
-                if ok:
-                    st.success(msg)
-                    st.rerun()
+                if not login_email or not login_pass:
+                    st.warning("Please enter your email and password.")
                 else:
-                    st.error(msg)
+                    ok, msg = sign_in(login_email, login_pass)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
 
         with tab_signup:
             su_name   = st.text_input("Full Name", key="su_name")
@@ -105,23 +364,11 @@ with st.sidebar:
             su_region = st.selectbox("Region", REGIONS, key="su_region")
             su_phone  = st.text_input("Phone Number", key="su_phone")
 
-            merchant_prefs = None
-            if su_role == "merchant":
-                st.caption("🏪 Buying preferences — powers AI matching")
-                merchant_prefs = {
-                    "preferred_sector":  st.selectbox("Preferred Sector", SECTORS, key="pref_sector"),
-                    "preferred_product": st.text_input("Preferred Product", key="pref_product"),
-                    "max_budget_birr":   st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0, key="pref_budget"),
-                    "preferred_quality": st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"], key="pref_quality"),
-                    "needs_delivery":    st.checkbox("I need delivery", key="pref_delivery"),
-                    "payment_method":    st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"], key="pref_payment"),
-                }
-
             if st.button("Create Account", use_container_width=True):
-                if not su_name or not su_email or not su_pass:
+                if not su_name or not su_email or not su_pass or not su_phone:
                     st.warning("Please fill in all required fields.")
                 else:
-                    ok, msg = sign_up(su_email, su_pass, su_name, su_role, su_region, su_phone, merchant_prefs)
+                    ok, msg = sign_up(su_email, su_pass, su_name, su_role, su_region, su_phone)
                     st.success(msg) if ok else st.error(msg)
     else:
         profile = st.session_state.profile
@@ -148,11 +395,11 @@ if role == "producer":
     tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "⚙️ Profile"])
     tab_browse, tab_add, tab_listings, tab_profile = tabs
 elif role == "merchant":
-    tabs = st.tabs(["📦 Browse", "🛒 My Orders", "⚙️ Profile"])
-    tab_browse, tab_orders, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "⚙️ Profile"])
+    tab_browse, tab_matches, tab_orders, tab_profile = tabs
 else:  # customer
-    tabs = st.tabs(["📦 Browse", "🛒 My Orders", "⚙️ Profile"])
-    tab_browse, tab_orders, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "⚙️ Profile"])
+    tab_browse, tab_matches, tab_orders, tab_profile = tabs
 
 
 # ════════════════════════════════════════════════════════════
@@ -224,12 +471,12 @@ with tab_browse:
                                 st.warning("⚠️ High fraud risk — proceed with caution.")
                             try:
                                 supabase.table("orders").insert({
-                                    "product_id": p["id"],
-                                    "buyer_id": st.session_state.user.id,
-                                    "quantity_ordered": qty_to_order,
-                                    "total_price_birr": total,
-                                    "status": "pending",
-                                    "fraud_risk_level": risk["risk_level"],
+                                    "product_id":        p["id"],
+                                    "buyer_id":          st.session_state.user.id,
+                                    "quantity_ordered":  qty_to_order,
+                                    "total_price_birr":  total,
+                                    "status":            "pending",
+                                    "fraud_risk_level":  risk["risk_level"],
                                     "fraud_probability": risk["fraud_probability"],
                                 }).execute()
                                 st.success(f"✅ Order placed — {total:,.0f} Birr")
@@ -238,6 +485,108 @@ with tab_browse:
                                 st.error(f"Order failed: {e}")
                     else:
                         st.caption("📍 " + p["region"])
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: BEST MATCHES (Merchant / Customer)
+# ════════════════════════════════════════════════════════════
+if role in ("merchant", "customer"):
+    with tab_matches:
+        st.subheader("🤖 AI-Recommended Products For You")
+        st.caption("Based on your region, buying preferences and past activity")
+
+        try:
+            all_products = supabase.table("products") \
+                .select("*, profiles(full_name, phone, region)") \
+                .eq("is_available", True).execute().data
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            all_products = []
+
+        if not all_products:
+            st.info("No products available for matching.")
+        else:
+            # Score each product for this buyer
+            buyer_region   = profile.get("region", "")
+            pref_sector    = profile.get("preferred_sector", "")
+            pref_product   = profile.get("preferred_product", "").lower()
+            pref_quality   = profile.get("preferred_quality", "Any")
+            max_budget     = float(profile.get("max_budget_birr") or 0)
+
+            def score_product(p):
+                score = 0.0
+                # Region match
+                if p.get("region") == buyer_region:
+                    score += 30
+                # Sector match
+                if pref_sector and p.get("sector") == pref_sector:
+                    score += 25
+                # Product name match
+                if pref_product and pref_product in p.get("product_name", "").lower():
+                    score += 30
+                # Quality match
+                if pref_quality and pref_quality != "Any":
+                    if pref_quality == "A or B" and p.get("quality_grade") in ("A", "B"):
+                        score += 10
+                    elif p.get("quality_grade") == pref_quality:
+                        score += 10
+                # Budget match (penalise over-budget)
+                if max_budget > 0 and p.get("price_birr", 0) <= max_budget:
+                    score += 5
+                return score
+
+            scored = sorted(all_products, key=score_product, reverse=True)
+            top_products = scored[:10]
+
+            st.markdown(f"**Showing top {len(top_products)} matches for you:**")
+
+            for p in top_products:
+                sc = score_product(p)
+                pct = min(int(sc), 100)
+                seller = p.get("profiles") or {}
+
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    with c1:
+                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                        st.caption(p.get("description") or "No description")
+                        st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']}")
+                        match_color = "🟢" if pct >= 60 else ("🟡" if pct >= 30 else "🔴")
+                        st.caption(f"{match_color} Match Score: **{pct}%**")
+                    with c2:
+                        st.metric("Price", f"{p['price_birr']:,.0f} Birr")
+                        st.caption(f"Available: {p['quantity']} {p['unit']}")
+                    with c3:
+                        qty_to_order = st.number_input(
+                            "Qty", min_value=1.0, max_value=float(p["quantity"]),
+                            value=1.0, key=f"match_qty_{p['id']}"
+                        )
+                        total = qty_to_order * p["price_birr"]
+                        st.caption(f"Total: **{total:,.0f} Birr**")
+                        if st.button("🛒 Order Now", key=f"match_order_{p['id']}"):
+                            try:
+                                risk = check_fraud_risk(
+                                    sector=p["sector"], product=p["product_name"],
+                                    region=p["region"], payment_method="Bank Transfer",
+                                    quantity=qty_to_order, agreed_price_birr=p["price_birr"],
+                                    market_price_birr=p["price_birr"],
+                                )
+                            except Exception:
+                                risk = {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
+                            try:
+                                supabase.table("orders").insert({
+                                    "product_id":        p["id"],
+                                    "buyer_id":          st.session_state.user.id,
+                                    "quantity_ordered":  qty_to_order,
+                                    "total_price_birr":  total,
+                                    "status":            "pending",
+                                    "fraud_risk_level":  risk["risk_level"],
+                                    "fraud_probability": risk.get("fraud_probability", 0.0),
+                                }).execute()
+                                st.success(f"✅ Order placed — {total:,.0f} Birr")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Order failed: {e}")
 
 
 # ════════════════════════════════════════════════════════════
@@ -298,6 +647,211 @@ if role == "producer":
     with tab_listings:
         st.subheader("📋 My Listings")
 
+        # ── INCOMING ORDERS ──────────────────────────────────
+        try:
+            my_prods_raw = supabase.table("products").select("id") \
+                .eq("producer_id", st.session_state.user.id).execute().data
+            my_product_ids = [p["id"] for p in my_prods_raw]
+        except Exception:
+            my_product_ids = []
+
+        if my_product_ids:
+            try:
+                incoming_orders = supabase.table("orders") \
+                    .select("*, products(id, product_name, unit, price_birr, quantity), profiles(full_name, phone, region)") \
+                    .eq("status", "pending").execute().data
+                incoming_orders = [o for o in incoming_orders if o["product_id"] in my_product_ids]
+            except Exception:
+                incoming_orders = []
+
+            if incoming_orders:
+                st.markdown("### 📬 Incoming Orders")
+                for o in incoming_orders:
+                    prod         = o.get("products") or {}
+                    buyer        = o.get("profiles") or {}
+                    pname        = prod.get("product_name", "Unknown")
+                    unit         = prod.get("unit", "")
+                    buyer_name   = buyer.get("full_name", "Unknown buyer")
+                    buyer_phone  = buyer.get("phone", "N/A")
+                    buyer_region = buyer.get("region", "N/A")
+
+                    with st.container(border=True):
+                        st.markdown(f"🛒 **Order for {pname}**")
+                        col_info, col_actions = st.columns([3, 2])
+                        with col_info:
+                            st.caption(f"👤 Buyer: **{buyer_name}** · 📍 {buyer_region}")
+                            st.caption(f"📞 Phone: {buyer_phone}")
+                            st.caption(f"Qty: {o['quantity_ordered']} {unit} · Total: **{o['total_price_birr']:,.0f} Birr**")
+                            rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(o.get("fraud_risk_level"), "⚪")
+                            st.caption(f"{rb} Fraud Risk: **{o.get('fraud_risk_level', 'N/A')}**")
+                        with col_actions:
+                            col_acc, col_rej = st.columns(2)
+                            with col_acc:
+                                if st.button("✅ Accept", key=f"accept_order_{o['id']}", use_container_width=True):
+                                    try:
+                                        # Confirm the order
+                                        supabase.table("orders").update(
+                                            {"status": "confirmed"}
+                                        ).eq("id", o["id"]).execute()
+                                        # Reduce product quantity
+                                        new_qty = float(prod.get("quantity", 0)) - float(o["quantity_ordered"])
+                                        if new_qty <= 0:
+                                            supabase.table("products").update(
+                                                {"quantity": 0, "is_available": False}
+                                            ).eq("id", o["product_id"]).execute()
+                                        else:
+                                            supabase.table("products").update(
+                                                {"quantity": new_qty}
+                                            ).eq("id", o["product_id"]).execute()
+                                        st.success(f"✅ Order accepted! Contact {buyer_name} at {buyer_phone}.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                            with col_rej:
+                                if st.button("❌ Reject", key=f"reject_order_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update(
+                                            {"status": "cancelled"}
+                                        ).eq("id", o["id"]).execute()
+                                        st.info("Order rejected.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                st.divider()
+
+        # ── AGREEMENT PANEL ───────────────────────────────────
+        if st.session_state.agreement_product_id and st.session_state.agreement_merchant:
+            m   = st.session_state.agreement_merchant
+            pid = st.session_state.agreement_product_id
+            try:
+                prod_res = supabase.table("products").select("*").eq("id", pid).execute()
+                prod     = prod_res.data[0] if prod_res.data else {}
+            except Exception:
+                prod = {}
+
+            st.markdown(f"### 🤝 Agreement with **{m['name']}**")
+            with st.container(border=True):
+                col_contact, col_terms = st.columns(2)
+                with col_contact:
+                    st.markdown("#### 📞 Merchant Contact")
+                    st.markdown(f"**Name:** {m['name']}")
+                    st.markdown(f"**Region:** {m.get('region', 'N/A')}")
+                    st.markdown(f"**Phone:** {m.get('phone') or 'Not provided'}")
+                    st.markdown(f"**Preferred Product:** {m.get('preferred_product') or 'N/A'}")
+                    st.markdown(f"**Payment Method:** {m.get('payment_method') or 'N/A'}")
+                    st.markdown(f"**Max Budget:** {m.get('max_budget_birr', 0):,.0f} Birr")
+
+                with col_terms:
+                    st.markdown("#### 📝 Agreement Terms")
+                    agr_qty      = st.number_input("Quantity",
+                                                   min_value=0.1,
+                                                   max_value=float(prod.get("quantity", 1000)),
+                                                   value=min(10.0, float(prod.get("quantity", 10))),
+                                                   step=1.0, key="agr_qty")
+                    agr_price    = st.number_input("Agreed Price per Unit (Birr)",
+                                                   min_value=1.0,
+                                                   value=float(prod.get("price_birr", 100)),
+                                                   step=10.0, key="agr_price")
+                    agr_delivery = st.date_input("Delivery Date", key="agr_delivery")
+                    agr_payment  = st.selectbox("Payment Method",
+                                                ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+                                                key="agr_payment")
+                    agr_notes    = st.text_area("Additional Notes (optional)", key="agr_notes")
+                    agr_total    = agr_qty * agr_price
+                    st.info(f"💰 Total: **{agr_total:,.0f} Birr**")
+
+                col_send, col_cancel = st.columns(2)
+                with col_send:
+                    if st.button("✅ Confirm & Generate Agreement", use_container_width=True, key="send_agreement"):
+                        try:
+                            # Insert confirmed order
+                            order_res = supabase.table("orders").insert({
+                                "product_id":        pid,
+                                "buyer_id":          m["id"],
+                                "quantity_ordered":  agr_qty,
+                                "total_price_birr":  agr_total,
+                                "status":            "confirmed",
+                                "fraud_risk_level":  "Low",
+                                "fraud_probability": 0.05,
+                                "notes": (
+                                    f"Producer-initiated agreement. "
+                                    f"Payment: {agr_payment}. "
+                                    f"Delivery: {agr_delivery}. "
+                                    f"{agr_notes}"
+                                ),
+                            }).execute()
+                            order_id = order_res.data[0]["id"] if order_res.data else "N/A"
+
+                            # Reduce product quantity
+                            new_qty = float(prod.get("quantity", 0)) - agr_qty
+                            if new_qty <= 0:
+                                supabase.table("products").update(
+                                    {"quantity": 0, "is_available": False}
+                                ).eq("id", pid).execute()
+                            else:
+                                supabase.table("products").update(
+                                    {"quantity": new_qty}
+                                ).eq("id", pid).execute()
+
+                            # Generate PDF
+                            producer_profile = profile
+                            pdf_bytes = generate_agreement_pdf(
+                                producer_name    = producer_profile.get("full_name", ""),
+                                producer_phone   = producer_profile.get("phone", ""),
+                                producer_region  = producer_profile.get("region", ""),
+                                merchant_name    = m["name"],
+                                merchant_phone   = m.get("phone", ""),
+                                merchant_region  = m.get("region", ""),
+                                product_name     = prod.get("product_name", ""),
+                                sector           = prod.get("sector", ""),
+                                quality_grade    = prod.get("quality_grade", ""),
+                                quantity         = agr_qty,
+                                unit             = prod.get("unit", ""),
+                                price_per_unit   = agr_price,
+                                total_price      = agr_total,
+                                delivery_date    = agr_delivery,
+                                payment_method   = agr_payment,
+                                notes            = agr_notes,
+                                agreement_id     = str(order_id),
+                            )
+                            st.session_state.agreement_pdf   = pdf_bytes
+                            st.session_state.agreement_ref   = str(order_id)
+                            st.session_state.agreement_merchant_name = m["name"]
+                            st.session_state.agreement_product_id = None
+                            st.session_state.agreement_merchant   = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                with col_cancel:
+                    if st.button("✖ Cancel", use_container_width=True, key="cancel_agreement"):
+                        st.session_state.agreement_product_id = None
+                        st.session_state.agreement_merchant   = None
+                        st.rerun()
+            st.markdown("---")
+
+        # ── SHOW PDF DOWNLOAD IF JUST GENERATED ──────────────
+        if st.session_state.get("agreement_pdf"):
+            st.success(
+                f"✅ Agreement confirmed with **{st.session_state.get('agreement_merchant_name', '')}**! "
+                "Download the formal agreement below."
+            )
+            pdf_b64 = base64.b64encode(st.session_state.agreement_pdf).decode()
+            ref     = st.session_state.get("agreement_ref", "agreement")
+            href    = (
+                f'<a href="data:application/pdf;base64,{pdf_b64}" '
+                f'download="Agreement-{ref[:8].upper()}.pdf" '
+                f'style="display:inline-block;padding:10px 20px;background:#1a5276;'
+                f'color:white;border-radius:6px;text-decoration:none;font-weight:bold;">'
+                f'📄 Download Formal Agreement PDF</a>'
+            )
+            st.markdown(href, unsafe_allow_html=True)
+            if st.button("✖ Dismiss", key="dismiss_pdf"):
+                st.session_state.agreement_pdf  = None
+                st.session_state.agreement_ref  = None
+                st.rerun()
+            st.divider()
+
+        # ── PRODUCT LISTINGS ─────────────────────────────────
         try:
             my_products = supabase.table("products").select("*") \
                 .eq("producer_id", st.session_state.user.id) \
@@ -321,7 +875,6 @@ if role == "producer":
 
                     col_toggle, col_edit, col_delete = st.columns(3)
 
-                    # ── TOGGLE STATUS ──
                     with col_toggle:
                         label = "⏸ Deactivate" if p["is_available"] else "▶ Activate"
                         if st.button(label, key=f"toggle_{p['id']}", use_container_width=True):
@@ -333,12 +886,10 @@ if role == "producer":
                             except Exception as e:
                                 st.error(f"Update failed: {e}")
 
-                    # ── EDIT ──
                     with col_edit:
                         if st.button("✏️ Edit", key=f"edit_btn_{p['id']}", use_container_width=True):
                             st.session_state.edit_product_id = p["id"]
 
-                    # ── DELETE ──
                     with col_delete:
                         if st.button("🗑️ Delete", key=f"del_{p['id']}", use_container_width=True):
                             try:
@@ -348,7 +899,6 @@ if role == "producer":
                             except Exception as e:
                                 st.error(f"Delete failed: {e}")
 
-                    # ── EDIT FORM (inline) ──
                     if st.session_state.edit_product_id == p["id"]:
                         st.markdown("---")
                         st.markdown("**✏️ Edit Product**")
@@ -404,25 +954,27 @@ if role == "producer":
                                     "producer_tx": 0, "return_rate": 0.05,
                                 }
                                 merchant_list = [{
-                                    "id": m["id"], "name": m["full_name"],
-                                    "preferred_sector":    m.get("preferred_sector"),
-                                    "preferred_product":   m.get("preferred_product"),
-                                    "region":              m.get("region"),
-                                    "max_budget_birr":     m.get("max_budget_birr") or 0,
-                                    "preferred_quality":   m.get("preferred_quality") or "Any",
-                                    "needs_delivery":      m.get("needs_delivery") or False,
-                                    "is_verified":         m.get("is_verified", True),
-                                    "rating":              m.get("rating") or 4.0,
-                                    "total_transactions":  m.get("total_transactions") or 0,
-                                    "years_in_business":   m.get("years_in_business") or 1,
-                                    "return_rate":         m.get("return_rate") or 0.05,
-                                    "payment_method":      m.get("payment_method"),
+                                    "id": m["id"],
+                                    "name": m["full_name"],
+                                    "phone": m.get("phone"),
+                                    "preferred_sector":   m.get("preferred_sector"),
+                                    "preferred_product":  m.get("preferred_product"),
+                                    "region":             m.get("region"),
+                                    "max_budget_birr":    m.get("max_budget_birr") or 0,
+                                    "preferred_quality":  m.get("preferred_quality") or "Any",
+                                    "needs_delivery":     m.get("needs_delivery") or False,
+                                    "is_verified":        m.get("is_verified", True),
+                                    "rating":             m.get("rating") or 4.0,
+                                    "total_transactions": m.get("total_transactions") or 0,
+                                    "years_in_business":  m.get("years_in_business") or 1,
+                                    "return_rate":        m.get("return_rate") or 0.05,
+                                    "payment_method":     m.get("payment_method"),
                                 } for m in merchants_raw]
 
                                 if not merchant_list:
                                     st.warning("No merchants registered yet.")
                                 else:
-                                    ranked     = rank_merchants(listing_data, merchant_list)
+                                    ranked      = rank_merchants(listing_data, merchant_list)
                                     top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
                                     if not top_matches:
                                         st.info("No strong matches found.")
@@ -431,7 +983,23 @@ if role == "producer":
                                         for r in top_matches:
                                             pct   = r["match_probability"] * 100
                                             badge = "🟢" if r["is_match"] == 1 else "🟡"
-                                            st.write(f"{badge} **{r['name']}** — {pct:.1f}% match · {r['region']} · wants {r['preferred_product'] or 'N/A'}")
+                                            mcol1, mcol2 = st.columns([3, 1])
+                                            with mcol1:
+                                                st.write(
+                                                    f"{badge} **{r['name']}** — {pct:.1f}% match · "
+                                                    f"{r.get('region', 'N/A')} · "
+                                                    f"wants {r.get('preferred_product') or 'N/A'} · "
+                                                    f"📞 {r.get('phone') or 'N/A'}"
+                                                )
+                                            with mcol2:
+                                                if st.button(
+                                                    "🤝 Agreement",
+                                                    key=f"agr_{p['id']}_{r['id']}",
+                                                    use_container_width=True
+                                                ):
+                                                    st.session_state.agreement_product_id = p["id"]
+                                                    st.session_state.agreement_merchant   = r
+                                                    st.rerun()
                             except Exception as e:
                                 st.error(f"Matching failed: {e}")
 
@@ -442,7 +1010,7 @@ if role == "producer":
                         fc = None
 
                     if fc and "error" not in fc:
-                        trend_icon  = {"up": "🟢 ↑ Rising", "down": "🔴 ↓ Falling", "stable": "🟡 → Stable"}[fc["trend"]]
+                        trend_icon = {"up": "🟢 ↑ Rising", "down": "🔴 ↓ Falling", "stable": "🟡 → Stable"}[fc["trend"]]
                         st.caption(f"📈 Demand Forecast | {trend_icon} | R²={fc['r2']:.2f} RMSE=±{fc['rmse']:,.0f}")
                         all_labels  = [f"W-{7-i}" for i in range(8)] + [f"+{w}w" for w in fc["weeks"]]
                         hist_series = fc["historical"] + [None] * 4
@@ -460,83 +1028,19 @@ if role in ("merchant", "customer"):
     with tab_orders:
         st.subheader("🛒 My Orders")
 
-        # ── MERCHANT DASHBOARD ──────────────────────────────
+        # ── MERCHANT: show preference summary only (no form here) ──
         if role == "merchant":
             has_prefs = profile.get("preferred_product") or profile.get("preferred_sector")
-            if not has_prefs:
-                st.warning("⚠️ You haven't set your buying preferences yet. Set them below to enable AI matching.")
-                with st.expander("🏪 Set Buying Preferences", expanded=True):
-                    pref_sector  = st.selectbox("Preferred Sector", SECTORS, key="dash_pref_sector")
-                    pref_product = st.text_input("Preferred Product (e.g. Teff, Coffee)", key="dash_pref_product")
-                    pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0, key="dash_pref_budget")
-                    pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"], key="dash_pref_quality")
-                    pref_delivery = st.checkbox("I need delivery", key="dash_pref_delivery")
-                    pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"], key="dash_pref_payment")
-
-                    if st.button("💾 Save Preferences", use_container_width=True, key="dash_save_prefs"):
-                        try:
-                            supabase.table("profiles").update({
-                                "preferred_sector":  pref_sector,
-                                "preferred_product": pref_product,
-                                "max_budget_birr":   pref_budget,
-                                "preferred_quality": pref_quality,
-                                "needs_delivery":    pref_delivery,
-                                "payment_method":    pref_payment,
-                            }).eq("id", st.session_state.user.id).execute()
-                            st.success("✅ Preferences saved! AI matching is now active.")
-                            st.session_state.profile = get_profile(st.session_state.user.id)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to save: {e}")
-            else:
+            if has_prefs:
                 st.info(
-                    f"🤖 AI Matching active — looking for **{profile.get('preferred_product', 'N/A')}** "
+                    f"🤖 AI Matching active — **{profile.get('preferred_product', 'N/A')}** "
                     f"in **{profile.get('preferred_sector', 'N/A')}** · "
                     f"Budget: **{profile.get('max_budget_birr', 0):,.0f} Birr** · "
-                    f"Quality: **{profile.get('preferred_quality', 'Any')}**"
+                    f"Quality: **{profile.get('preferred_quality', 'Any')}** — "
+                    f"update preferences in ⚙️ Profile"
                 )
-                if st.button("✏️ Update Preferences", key="dash_update_prefs"):
-                    st.session_state.show_pref_form = True
-
-                if st.session_state.get("show_pref_form"):
-                    with st.expander("🏪 Update Buying Preferences", expanded=True):
-                        pref_sector  = st.selectbox("Preferred Sector", SECTORS,
-                            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
-                            key="upd_pref_sector")
-                        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="upd_pref_product")
-                        pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
-                            value=float(profile.get("max_budget_birr") or 0), key="upd_pref_budget")
-                        pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
-                            index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
-                            key="upd_pref_quality")
-                        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="upd_pref_delivery")
-                        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
-                            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
-                            key="upd_pref_payment")
-
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("💾 Save", use_container_width=True, key="upd_save"):
-                                try:
-                                    supabase.table("profiles").update({
-                                        "preferred_sector":  pref_sector,
-                                        "preferred_product": pref_product,
-                                        "max_budget_birr":   pref_budget,
-                                        "preferred_quality": pref_quality,
-                                        "needs_delivery":    pref_delivery,
-                                        "payment_method":    pref_payment,
-                                    }).eq("id", st.session_state.user.id).execute()
-                                    st.success("✅ Preferences updated!")
-                                    st.session_state.profile = get_profile(st.session_state.user.id)
-                                    st.session_state.show_pref_form = False
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Failed to save: {e}")
-                        with col2:
-                            if st.button("✖ Cancel", use_container_width=True, key="upd_cancel"):
-                                st.session_state.show_pref_form = False
-                                st.rerun()
-
+            else:
+                st.warning("⚠️ No buying preferences set yet — go to ⚙️ Profile to enable AI matching.")
             st.divider()
 
         # ── ORDERS LIST ─────────────────────────────────────
@@ -583,6 +1087,8 @@ if role in ("merchant", "customer"):
                         st.markdown(f"**{pname}**")
                         st.caption(f"Seller: {seller_name} · Region: {prod.get('region', 'N/A')}")
                         st.caption(f"Qty: {o['quantity_ordered']} {unit}")
+                        if o.get("notes"):
+                            st.caption(f"📝 {o['notes']}")
                     with col_b:
                         st.metric("Total", f"{o['total_price_birr']:,.0f} Birr")
                         st.caption(status_badge)
@@ -603,70 +1109,8 @@ if role in ("merchant", "customer"):
                                     st.error(f"Cancel failed: {e}")
 
 
-with tab_profile:
-    st.subheader("⚙️ My Profile")
-    st.caption(f"**{profile['full_name']}** · {profile['role'].capitalize()} · {profile['region']}")
-    st.divider()
-
-    if role == "merchant":
-        st.markdown("### 🏪 Buying Preferences")
-        pref_sector  = st.selectbox("Preferred Sector", SECTORS,
-            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
-            key="prof_pref_sector")
-        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="prof_pref_product")
-        pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
-            value=float(profile.get("max_budget_birr") or 0), key="prof_pref_budget")
-        pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
-            index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
-            key="prof_pref_quality")
-        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="prof_pref_delivery")
-        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
-            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
-            key="prof_pref_payment")
-
-        if st.button("💾 Save Preferences", use_container_width=True, key="prof_save"):
-            try:
-                supabase.table("profiles").update({
-                    "preferred_sector":  pref_sector,
-                    "preferred_product": pref_product,
-                    "max_budget_birr":   pref_budget,
-                    "preferred_quality": pref_quality,
-                    "needs_delivery":    pref_delivery,
-                    "payment_method":    pref_payment,
-                }).eq("id", st.session_state.user.id).execute()
-                st.success("✅ Preferences saved!")
-                st.session_state.profile = get_profile(st.session_state.user.id)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to save: {e}")
-
-    elif role == "producer":
-        st.markdown("### 📊 My Stats")
-        try:
-            my_products = supabase.table("products").select("*") \
-                .eq("producer_id", st.session_state.user.id).execute().data
-            active = sum(1 for p in my_products if p["is_available"])
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Listings", len(my_products))
-            c2.metric("Active", active)
-            c3.metric("Inactive", len(my_products) - active)
-        except Exception as e:
-            st.error(f"Could not load stats: {e}")
-
-    else:
-        st.markdown("### 📊 My Stats")
-        try:
-            my_orders   = supabase.table("orders").select("*").eq("buyer_id", st.session_state.user.id).execute().data
-            total_spent = sum(o["total_price_birr"] for o in my_orders)
-            c1, c2 = st.columns(2)
-            c1.metric("Total Orders", len(my_orders))
-            c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
-        except Exception as e:
-            st.error(f"Could not load stats: {e}")
-
-
 # ════════════════════════════════════════════════════════════
-# TAB: PROFILE (All roles)
+# TAB: PROFILE (All roles) — defined ONCE
 # ════════════════════════════════════════════════════════════
 with tab_profile:
     st.subheader("⚙️ My Profile")
@@ -675,15 +1119,15 @@ with tab_profile:
 
     if role == "merchant":
         st.markdown("### 🏪 Buying Preferences")
-        st.caption("Update your preferences — this improves AI matching results")
+        st.caption("Set your preferences to power AI product matching")
 
-        pref_sector  = st.selectbox("Preferred Sector", SECTORS,
+        pref_sector   = st.selectbox("Preferred Sector", SECTORS,
             index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
             key="edit_pref_sector")
-        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
-        pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+        pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+        pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
             value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
-        pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+        pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
             index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
             key="edit_pref_quality")
         pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
@@ -691,7 +1135,7 @@ with tab_profile:
             index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
             key="edit_pref_payment")
 
-        if st.button("💾 Save Preferences", use_container_width=True):
+        if st.button("💾 Save Preferences", use_container_width=True, key="prof_save_merchant"):
             try:
                 supabase.table("profiles").update({
                     "preferred_sector":  pref_sector,
@@ -721,7 +1165,7 @@ with tab_profile:
         except Exception as e:
             st.error(f"Could not load stats: {e}")
 
-    else:
+    else:  # customer
         st.markdown("### 📊 My Stats")
         try:
             my_orders = supabase.table("orders").select("*") \
