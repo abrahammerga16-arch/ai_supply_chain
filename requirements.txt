@@ -8,5 +8,4 @@ joblib
 matplotlib
 seaborn
 plotly
-tensorflow-cpu==2.15.0
-keras==2.15.0
+pillow==11.2.1
