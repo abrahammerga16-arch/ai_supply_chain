@@ -603,9 +603,6 @@ if role in ("merchant", "customer"):
                                     st.error(f"Cancel failed: {e}")
 
 
-# ════════════════════════════════════════════════════════════
-# TAB: PROFILE
-# ════════════════════════════════════════════════════════════
 with tab_profile:
     st.subheader("⚙️ My Profile")
     st.caption(f"**{profile['full_name']}** · {profile['role'].capitalize()} · {profile['region']}")
@@ -615,19 +612,19 @@ with tab_profile:
         st.markdown("### 🏪 Buying Preferences")
         pref_sector  = st.selectbox("Preferred Sector", SECTORS,
             index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
-            key="edit_pref_sector")
-        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+            key="prof_pref_sector")
+        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="prof_pref_product")
         pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
-            value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
+            value=float(profile.get("max_budget_birr") or 0), key="prof_pref_budget")
         pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
             index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
-            key="edit_pref_quality")
-        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+            key="prof_pref_quality")
+        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="prof_pref_delivery")
         pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
             index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
-            key="edit_pref_payment")
+            key="prof_pref_payment")
 
-        if st.button("💾 Save Preferences", use_container_width=True, key="profile_save"):
+        if st.button("💾 Save Preferences", use_container_width=True, key="prof_save"):
             try:
                 supabase.table("profiles").update({
                     "preferred_sector":  pref_sector,
