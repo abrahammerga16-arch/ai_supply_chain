@@ -48,21 +48,32 @@ def get_profile(user_id: str):
 
 
 def sign_up(email, password, full_name, role, region, phone, merchant_prefs=None):
-    auth_res = supabase.auth.sign_up({"email": email, "password": password})
-    if auth_res.user is None:
-        return False, "Sign up failed. Email may already be registered."
-    user_id = auth_res.user.id
-    profile_data = {
-        "id": user_id,
-        "full_name": full_name,
-        "role": role,
-        "region": region,
-        "phone": phone
-    }
-    if role == "merchant" and merchant_prefs:
-        profile_data.update(merchant_prefs)
-    supabase.table("profiles").insert(profile_data).execute()
-    return True, "Account created! Please check your email to confirm, then log in."
+    # Password validation
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number."
+    if not any(c.isalpha() for c in password):
+        return False, "Password must contain at least one letter."
+
+    try:
+        auth_res = supabase.auth.sign_up({"email": email, "password": password})
+        if auth_res.user is None:
+            return False, "Sign up failed. Email may already be registered."
+        user_id = auth_res.user.id
+        profile_data = {
+            "id": user_id,
+            "full_name": full_name,
+            "role": role,
+            "region": region,
+            "phone": phone
+        }
+        if role == "merchant" and merchant_prefs:
+            profile_data.update(merchant_prefs)
+        supabase.table("profiles").insert(profile_data).execute()
+        return True, "Account created! Please check your email to confirm, then log in."
+    except Exception as e:
+        return False, f"Sign up failed: {str(e)}"
 
 
 def sign_in(email, password):
@@ -110,7 +121,8 @@ with st.sidebar:
         with tab_signup:
             su_name = st.text_input("Full Name", key="su_name")
             su_email = st.text_input("Email", key="su_email")
-            su_pass = st.text_input("Password", type="password", key="su_pass")
+            su_pass = st.text_input("Password", type="password", key="su_pass",
+                                    help="Min 8 characters, must include letters and numbers")
             su_role = st.selectbox("I am a...", ["producer", "merchant", "customer"], key="su_role")
             su_region = st.selectbox("Region", REGIONS, key="su_region")
             su_phone = st.text_input("Phone Number", key="su_phone")
@@ -217,7 +229,7 @@ else:
                                     sector=p["sector"], product=p["product_name"],
                                     region=p["region"], payment_method="Bank Transfer",
                                     quantity=qty_to_order, agreed_price_birr=p["price_birr"],
-                                    market_price_birr=p["price_birr"],  # listing price IS the asking price
+                                    market_price_birr=p["price_birr"],
                                 )
                                 badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}[risk["risk_level"]]
                                 st.caption(f"{badge} Fraud Risk: **{risk['risk_level']}** ({risk['fraud_probability']*100:.0f}%)")
@@ -231,43 +243,47 @@ else:
                                         "detection system. The order will still be placed, but please "
                                         "proceed with caution and verify the seller before paying."
                                     )
-                                supabase.table("orders").insert({
-                                    "product_id": p["id"],
-                                    "buyer_id": st.session_state.user.id,
-                                    "quantity_ordered": qty_to_order,
-                                    "total_price_birr": total_preview,
-                                    "status": "pending",
-                                    "fraud_risk_level": risk["risk_level"],
-                                    "fraud_probability": risk["fraud_probability"],
-                                }).execute()
-                                st.success(f"Order placed for {qty_to_order} {p['unit']} — {total_preview:,.0f} Birr")
-                                st.rerun()
+                                try:
+                                    supabase.table("orders").insert({
+                                        "product_id": p["id"],
+                                        "buyer_id": st.session_state.user.id,
+                                        "quantity_ordered": qty_to_order,
+                                        "total_price_birr": total_preview,
+                                        "status": "pending",
+                                        "fraud_risk_level": risk["risk_level"],
+                                        "fraud_probability": risk["fraud_probability"],
+                                    }).execute()
+                                    st.success(f"Order placed for {qty_to_order} {p['unit']} — {total_preview:,.0f} Birr")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Order failed: {e}")
 
     # ── MY ORDERS ──────────────────────────────────────────────
     with page[1]:
         st.subheader("My Orders")
-        orders = supabase.table("orders").select("*, products(product_name, region)") \
-            .eq("buyer_id", st.session_state.user.id).order("created_at", desc=True).execute().data
-        if not orders:
-            st.info("You haven't placed any orders yet.")
-        else:
-            for o in orders:
-                with st.container(border=True):
-                    pname = o["products"]["product_name"] if o.get("products") else "Unknown product"
-                    st.markdown(f"**{pname}** — {o['quantity_ordered']} units")
-                    st.caption(f"Total: {o['total_price_birr']:,.0f} Birr | Status: `{o['status']}`")
-                    risk_lvl = o.get("fraud_risk_level", "Unknown")
-                    if risk_lvl != "Unknown":
-                        badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
-                        st.caption(f"{badge} Fraud Risk at time of order: **{risk_lvl}**")
+        try:
+            orders = supabase.table("orders").select("*, products(product_name, region)") \
+                .eq("buyer_id", st.session_state.user.id).order("created_at", desc=True).execute().data
+            if not orders:
+                st.info("You haven't placed any orders yet.")
+            else:
+                for o in orders:
+                    with st.container(border=True):
+                        pname = o["products"]["product_name"] if o.get("products") else "Unknown product"
+                        st.markdown(f"**{pname}** — {o['quantity_ordered']} units")
+                        st.caption(f"Total: {o['total_price_birr']:,.0f} Birr | Status: `{o['status']}`")
+                        risk_lvl = o.get("fraud_risk_level", "Unknown")
+                        if risk_lvl != "Unknown":
+                            badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
+                            st.caption(f"{badge} Fraud Risk at time of order: **{risk_lvl}**")
+        except Exception as e:
+            st.error(f"Could not load orders: {e}")
 
     # ── PRODUCER-ONLY: LIST A PRODUCT ───────────────────────────
     if role == "producer":
         with page[2]:
             st.subheader("List a New Product")
 
-            # These fields sit OUTSIDE the form so the AI price suggestion
-            # can update live as the producer changes sector/product/region.
             p_sector = st.selectbox("Sector", SECTORS, key="new_p_sector")
             p_name = st.text_input("Product Name", key="new_p_name")
             p_quality = st.selectbox("Quality Grade", ["A", "B", "C"], key="new_p_quality")
@@ -302,125 +318,137 @@ else:
                     if not p_name or p_qty <= 0 or p_price <= 0:
                         st.warning("Please fill in product name, quantity, and price.")
                     else:
-                        supabase.table("products").insert({
-                            "producer_id": st.session_state.user.id,
-                            "sector": p_sector,
-                            "product_name": p_name,
-                            "quantity": p_qty,
-                            "unit": p_unit,
-                            "price_birr": p_price,
-                            "quality_grade": p_quality,
-                            "region": p_region,
-                            "description": p_desc,
-                            "is_available": True
-                        }).execute()
-                        st.success(f"'{p_name}' listed successfully!")
-                        st.rerun()
+                        try:
+                            supabase.table("products").insert({
+                                "producer_id": st.session_state.user.id,
+                                "sector": p_sector,
+                                "product_name": p_name,
+                                "quantity": p_qty,
+                                "unit": p_unit,
+                                "price_birr": p_price,
+                                "quality_grade": p_quality,
+                                "region": p_region,
+                                "description": p_desc,
+                                "is_available": True
+                            }).execute()
+                            st.success(f"'{p_name}' listed successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to list product: {e}")
 
         # ── PRODUCER-ONLY: MY LISTINGS ──────────────────────────
         with page[3]:
             st.subheader("My Listings")
-            my_products = supabase.table("products").select("*") \
-                .eq("producer_id", st.session_state.user.id).order("created_at", desc=True).execute().data
-            if not my_products:
-                st.info("You haven't listed any products yet.")
-            else:
-                for p in my_products:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade {p['quality_grade']}")
-                            st.caption(f"{p['quantity']} {p['unit']} @ {p['price_birr']:,.0f} Birr | {p['region']}")
-                        with c2:
-                            status = "🟢 Active" if p["is_available"] else "🔴 Inactive"
-                            st.caption(status)
-                            if st.button("Toggle Status", key=f"toggle_{p['id']}"):
-                                supabase.table("products").update(
-                                    {"is_available": not p["is_available"]}
-                                ).eq("id", p["id"]).execute()
-                                st.rerun()
+            try:
+                my_products = supabase.table("products").select("*") \
+                    .eq("producer_id", st.session_state.user.id).order("created_at", desc=True).execute().data
+                if not my_products:
+                    st.info("You haven't listed any products yet.")
+                else:
+                    for p in my_products:
+                        with st.container(border=True):
+                            c1, c2 = st.columns([3, 1])
+                            with c1:
+                                st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade {p['quality_grade']}")
+                                st.caption(f"{p['quantity']} {p['unit']} @ {p['price_birr']:,.0f} Birr | {p['region']}")
+                            with c2:
+                                status = "🟢 Active" if p["is_available"] else "🔴 Inactive"
+                                st.caption(status)
+                                if st.button("Toggle Status", key=f"toggle_{p['id']}"):
+                                    try:
+                                        supabase.table("products").update(
+                                            {"is_available": not p["is_available"]}
+                                        ).eq("id", p["id"]).execute()
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Update failed: {e}")
 
-                        # ── AI SMART MATCHING ─────────────────────
-                        if st.button("🤖 Find Best Matches", key=f"match_{p['id']}"):
-                            with st.spinner("Scoring compatibility with all merchants..."):
-                                merchants_raw = supabase.table("profiles") \
-                                    .select("*").eq("role", "merchant").execute().data
+                            # ── AI SMART MATCHING ─────────────────────
+                            if st.button("🤖 Find Best Matches", key=f"match_{p['id']}"):
+                                with st.spinner("Scoring compatibility with all merchants..."):
+                                    try:
+                                        merchants_raw = supabase.table("profiles") \
+                                            .select("*").eq("role", "merchant").execute().data
 
-                                listing_data = {
-                                    "sector": p["sector"],
-                                    "product_name": p["product_name"],
-                                    "price_birr": p["price_birr"],
-                                    "quantity": p["quantity"],
-                                    "quality_grade": p["quality_grade"],
-                                    "region": p["region"],
-                                    "is_verified": 1,
-                                    "delivery_available": 1,
-                                    "producer_rating": 4.0,
-                                    "producer_experience": 3,
-                                    "producer_tx": 0,
-                                    "return_rate": 0.05,
-                                }
+                                        listing_data = {
+                                            "sector": p["sector"],
+                                            "product_name": p["product_name"],
+                                            "price_birr": p["price_birr"],
+                                            "quantity": p["quantity"],
+                                            "quality_grade": p["quality_grade"],
+                                            "region": p["region"],
+                                            "is_verified": 1,
+                                            "delivery_available": 1,
+                                            "producer_rating": 4.0,
+                                            "producer_experience": 3,
+                                            "producer_tx": 0,
+                                            "return_rate": 0.05,
+                                        }
 
-                                merchant_list = []
-                                for m in merchants_raw:
-                                    merchant_list.append({
-                                        "id": m["id"],
-                                        "name": m["full_name"],
-                                        "preferred_sector": m.get("preferred_sector"),
-                                        "preferred_product": m.get("preferred_product"),
-                                        "region": m.get("region"),
-                                        "max_budget_birr": m.get("max_budget_birr") or 0,
-                                        "preferred_quality": m.get("preferred_quality") or "Any",
-                                        "needs_delivery": m.get("needs_delivery") or False,
-                                        "is_verified": m.get("is_verified", True),
-                                        "rating": m.get("rating") or 4.0,
-                                        "total_transactions": m.get("total_transactions") or 0,
-                                        "years_in_business": m.get("years_in_business") or 1,
-                                        "return_rate": m.get("return_rate") or 0.05,
-                                        "payment_method": m.get("payment_method"),
-                                    })
+                                        merchant_list = []
+                                        for m in merchants_raw:
+                                            merchant_list.append({
+                                                "id": m["id"],
+                                                "name": m["full_name"],
+                                                "preferred_sector": m.get("preferred_sector"),
+                                                "preferred_product": m.get("preferred_product"),
+                                                "region": m.get("region"),
+                                                "max_budget_birr": m.get("max_budget_birr") or 0,
+                                                "preferred_quality": m.get("preferred_quality") or "Any",
+                                                "needs_delivery": m.get("needs_delivery") or False,
+                                                "is_verified": m.get("is_verified", True),
+                                                "rating": m.get("rating") or 4.0,
+                                                "total_transactions": m.get("total_transactions") or 0,
+                                                "years_in_business": m.get("years_in_business") or 1,
+                                                "return_rate": m.get("return_rate") or 0.05,
+                                                "payment_method": m.get("payment_method"),
+                                            })
 
-                                if not merchant_list:
-                                    st.warning("No merchants registered yet.")
-                                else:
-                                    ranked = rank_merchants(listing_data, merchant_list)
-                                    top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
+                                        if not merchant_list:
+                                            st.warning("No merchants registered yet.")
+                                        else:
+                                            ranked = rank_merchants(listing_data, merchant_list)
+                                            top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
 
-                                    if not top_matches:
-                                        st.info("No strong matches found yet. Try adjusting price or quality grade.")
-                                    else:
-                                        st.markdown("**Top AI-Matched Merchants:**")
-                                        for r in top_matches:
-                                            pct = r["match_probability"] * 100
-                                            badge = "🟢" if r["is_match"] == 1 else "🟡"
-                                            st.write(f"{badge} **{r['name']}** — {pct:.1f}% match · {r['region']} · wants {r['preferred_product'] or 'N/A'}")
+                                            if not top_matches:
+                                                st.info("No strong matches found yet. Try adjusting price or quality grade.")
+                                            else:
+                                                st.markdown("**Top AI-Matched Merchants:**")
+                                                for r in top_matches:
+                                                    pct = r["match_probability"] * 100
+                                                    badge = "🟢" if r["is_match"] == 1 else "🟡"
+                                                    st.write(f"{badge} **{r['name']}** — {pct:.1f}% match · {r['region']} · wants {r['preferred_product'] or 'N/A'}")
+                                    except Exception as e:
+                                        st.error(f"Matching failed: {e}")
 
-                        # ── AI DEMAND FORECAST ────────────────────────
-                        st.markdown("---")
-                        with st.spinner("Loading demand forecast..."):
-                            try:
-                                fc = forecast_demand(p["product_name"], p["region"], weeks_ahead=4)
-                            except Exception:
-                                fc = None
+                            # ── AI DEMAND FORECAST ────────────────────────
+                            st.markdown("---")
+                            with st.spinner("Loading demand forecast..."):
+                                try:
+                                    fc = forecast_demand(p["product_name"], p["region"], weeks_ahead=4)
+                                except Exception:
+                                    fc = None
 
-                        if fc and "error" not in fc:
-                            trend_color = {"up": "🟢", "down": "🔴", "stable": "🟡"}[fc["trend"]]
-                            trend_label = {"up": "↑ Rising", "down": "↓ Falling", "stable": "→ Stable"}
-                            st.caption(
-                                f"📈 **Demand Forecast** — {p['region']}  "
-                                f"| {trend_color} {trend_label[fc['trend']]}  "
-                                f"| Model R²={fc['r2']:.2f}  RMSE=±{fc['rmse']:,.0f} units"
-                            )
+                            if fc and "error" not in fc:
+                                trend_color = {"up": "🟢", "down": "🔴", "stable": "🟡"}[fc["trend"]]
+                                trend_label = {"up": "↑ Rising", "down": "↓ Falling", "stable": "→ Stable"}
+                                st.caption(
+                                    f"📈 **Demand Forecast** — {p['region']}  "
+                                    f"| {trend_color} {trend_label[fc['trend']]}  "
+                                    f"| Model R²={fc['r2']:.2f}  RMSE=±{fc['rmse']:,.0f} units"
+                                )
 
-                            import pandas as pd
-                            all_labels = [f"W-{7-i}" for i in range(8)] + [f"+{w}w" for w in fc["weeks"]]
-                            hist_series = fc["historical"] + [None] * 4
-                            fc_series   = [None] * 7 + [fc["historical"][-1]] + fc["forecast"]
-                            chart_data  = pd.DataFrame({
-                                "Week":     all_labels,
-                                "Actual":   hist_series,
-                                "Forecast": fc_series,
-                            }).set_index("Week")
-                            st.line_chart(chart_data, color=["#4A90D9", "#F5A623"], height=200)
-                        else:
-                            st.caption("📈 Demand forecast unavailable for this product-region.")
+                                import pandas as pd
+                                all_labels = [f"W-{7-i}" for i in range(8)] + [f"+{w}w" for w in fc["weeks"]]
+                                hist_series = fc["historical"] + [None] * 4
+                                fc_series   = [None] * 7 + [fc["historical"][-1]] + fc["forecast"]
+                                chart_data  = pd.DataFrame({
+                                    "Week":     all_labels,
+                                    "Actual":   hist_series,
+                                    "Forecast": fc_series,
+                                }).set_index("Week")
+                                st.line_chart(chart_data, color=["#4A90D9", "#F5A623"], height=200)
+                            else:
+                                st.caption("📈 Demand forecast unavailable for this product-region.")
+            except Exception as e:
+                st.error(f"Could not load listings: {e}")
