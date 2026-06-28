@@ -639,7 +639,7 @@ if role == "producer":
             my_product_ids = []
 
         if my_product_ids:
-            try:
+         try:
             orders = supabase.table("orders") \
                 .select("*, products(product_name, unit, region, sector, profiles(full_name))") \
                 .eq("buyer_id", st.session_state.user.id) \
