@@ -498,7 +498,7 @@ if role in ("merchant", "customer"):
         else:
            buyer_region = profile.get("region", "")
             pref_sector = profile.get("preferred_sector", "")
-            pref_product = (profile.get("preferred_product") or "").lower()
+           pref_product   = profile.get("preferred_product", "").lower()
             pref_quality = profile.get("preferred_quality", "Any")
             max_budget = float(profile.get("max_budget_birr") or 0)
 
