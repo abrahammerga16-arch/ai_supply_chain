@@ -369,7 +369,10 @@ with st.sidebar:
                     st.warning("Please fill in all required fields.")
                 else:
                     ok, msg = sign_up(su_email, su_pass, su_name, su_role, su_region, su_phone)
-                    st.success(msg) if ok else st.error(msg)
+                    if ok:
+    st.success(msg)
+else:
+    st.error(msg)
     else:
         profile = st.session_state.profile
         st.success(f"Welcome, {profile['full_name'] if profile else 'User'}")
