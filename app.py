@@ -1079,6 +1079,45 @@ if role in ("merchant", "customer"):
                                 except Exception as e:
                                     st.error(f"Cancel failed: {e}")
 
+                    # ── UPDATE ORDER (merchant only) ──
+                    if role == "merchant" and o["status"] not in ("cancelled", "delivered"):
+                        with st.expander("✏️ Update Order"):
+                            new_qty = st.number_input(
+                                "New Quantity",
+                                min_value=0.1,
+                                value=float(o["quantity_ordered"]),
+                                step=1.0,
+                                key=f"upd_qty_{o['id']}"
+                            )
+                            new_notes = st.text_area(
+                                "Notes",
+                                value=o.get("notes") or "",
+                                key=f"upd_notes_{o['id']}"
+                            )
+                            new_status = st.selectbox(
+                                "Update Status",
+                                ["pending", "confirmed", "delivered", "cancelled"],
+                                index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
+                                key=f"upd_status_{o['id']}"
+                            )
+
+                            # recalculate total based on new qty
+                            unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
+                            new_total  = new_qty * unit_price
+                            st.caption(f"New Total: **{new_total:,.0f} Birr**")
+
+                            if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
+                                try:
+                                    supabase.table("orders").update({
+                                        "quantity_ordered": new_qty,
+                                        "total_price_birr": new_total,
+                                        "notes":            new_notes,
+                                        "status":           new_status,
+                                    }).eq("id", o["id"]).execute()
+                                    st.success("✅ Order updated!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Update failed: {e}")
 
 # ════════════════════════════════════════════════════════════
 # TAB: PROFILE (All roles)
