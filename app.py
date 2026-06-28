@@ -644,7 +644,7 @@ if role == "producer":
                 .select("*, products(product_name, unit, region, sector, profiles(full_name))") \
                 .eq("buyer_id", st.session_state.user.id) \
                 .order("created_at", desc=True).execute().data
-          except Exception as e:
+         except Exception as e:
             st.error(f"Could not load orders: {e}")
             orders = []
 
