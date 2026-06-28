@@ -1,0 +1,25 @@
+-- ============================================================
+-- Stage 5 — Migration: Demand Forecasting
+-- Run in Supabase SQL Editor AFTER schema.sql, migration_stage2.sql,
+-- and migration_stage4.sql. This is additive — nothing is dropped.
+-- ============================================================
+
+-- No new database columns are needed for Stage 5.
+-- Demand forecasts are computed on-the-fly by the LSTM model at
+-- runtime and displayed in the UI without being stored.
+--
+-- This file is provided for completeness in the migration sequence.
+-- If you want to cache forecasts for performance, you could add:
+--
+-- create table if not exists demand_forecasts (
+--   id          uuid primary key default gen_random_uuid(),
+--   product     text not null,
+--   region      text not null,
+--   week_ahead  integer not null,
+--   forecast    numeric not null,
+--   created_at  timestamp with time zone default now()
+-- );
+--
+-- But for Stage 5 this is not required.
+-- ============================================================
+select 'Stage 5 migration: no schema changes required' as status;
