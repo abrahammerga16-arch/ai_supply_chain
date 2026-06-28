@@ -640,65 +640,137 @@ if role == "producer":
 
         if my_product_ids:
             try:
-                incoming_orders = supabase.table("orders") \
-                    .select("*, products(id, product_name, unit, price_birr, quantity), profiles(full_name, phone, region)") \
-                    .eq("status", "pending").execute().data
-                incoming_orders = [o for o in incoming_orders if o["product_id"] in my_product_ids]
-            except Exception:
-                incoming_orders = []
+            orders = supabase.table("orders") \
+                .select("*, products(product_name, unit, region, sector, profiles(full_name))") \
+                .eq("buyer_id", st.session_state.user.id) \
+                .order("created_at", desc=True).execute().data
+        except Exception as e:
+            st.error(f"Could not load orders: {e}")
+            orders = []
 
-            if incoming_orders:
-                st.markdown("### 📬 Incoming Orders")
-                for o in incoming_orders:
-                    prod         = o.get("products") or {}
-                    buyer        = o.get("profiles") or {}
-                    pname        = prod.get("product_name", "Unknown")
-                    unit         = prod.get("unit", "")
-                    buyer_name   = buyer.get("full_name", "Unknown buyer")
-                    buyer_phone  = buyer.get("phone", "N/A")
-                    buyer_region = buyer.get("region", "N/A")
+        if not orders:
+            st.info("You haven't placed any orders yet. Browse products to get started.")
+        else:
+            total_spent = sum(o["total_price_birr"] for o in orders)
+            pending     = sum(1 for o in orders if o["status"] == "pending")
 
-                    with st.container(border=True):
-                        st.markdown(f"🛒 **Order for {pname}**")
-                        col_info, col_actions = st.columns([3, 2])
-                        with col_info:
-                            st.caption(f"👤 Buyer: **{buyer_name}** · 📍 {buyer_region}")
-                            st.caption(f"📞 Phone: {buyer_phone}")
-                            st.caption(f"Qty: {o['quantity_ordered']} {unit} · Total: **{o['total_price_birr']:,.0f} Birr**")
-                            rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(o.get("fraud_risk_level"), "⚪")
-                            st.caption(f"{rb} Fraud Risk: **{o.get('fraud_risk_level', 'N/A')}**")
-                        with col_actions:
-                            col_acc, col_rej = st.columns(2)
-                            with col_acc:
-                                if st.button("✅ Accept", key=f"accept_order_{o['id']}", use_container_width=True):
-                                    try:
-                                        supabase.table("orders").update(
-                                            {"status": "confirmed"}
-                                        ).eq("id", o["id"]).execute()
-                                        new_qty = float(prod.get("quantity", 0)) - float(o["quantity_ordered"])
-                                        if new_qty <= 0:
-                                            supabase.table("products").update(
-                                                {"quantity": 0, "is_available": False}
-                                            ).eq("id", o["product_id"]).execute()
-                                        else:
-                                            supabase.table("products").update(
-                                                {"quantity": new_qty}
-                                            ).eq("id", o["product_id"]).execute()
-                                        st.success(f"✅ Order accepted! Contact {buyer_name} at {buyer_phone}.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Failed: {e}")
-                            with col_rej:
-                                if st.button("❌ Reject", key=f"reject_order_{o['id']}", use_container_width=True):
-                                    try:
-                                        supabase.table("orders").update(
-                                            {"status": "cancelled"}
-                                        ).eq("id", o["id"]).execute()
-                                        st.info("Order rejected.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Failed: {e}")
-                st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Orders", len(orders))
+            m2.metric("Total Spent", f"{total_spent:,.0f} Birr")
+            m3.metric("Pending", pending)
+            st.divider()
+
+            # ── FILTERS ──
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"], key="order_status_filter")
+            with col_f2:
+                all_sectors = list(set(
+                    (o.get("products") or {}).get("sector", "Unknown") for o in orders
+                ))
+                all_sectors = sorted([s for s in all_sectors if s])
+                sector_filter = st.selectbox("Filter by Sector", ["All"] + all_sectors, key="order_sector_filter")
+
+            # ── APPLY FILTERS ──
+            filtered_orders = orders
+            if status_filter != "All":
+                filtered_orders = [o for o in filtered_orders if o["status"] == status_filter]
+            if sector_filter != "All":
+                filtered_orders = [o for o in filtered_orders if (o.get("products") or {}).get("sector") == sector_filter]
+
+            # ── GROUP BY SECTOR ──
+            from collections import defaultdict
+            grouped = defaultdict(list)
+            for o in filtered_orders:
+                sector = (o.get("products") or {}).get("sector", "Unknown")
+                grouped[sector].append(o)
+
+            if not filtered_orders:
+                st.info("No orders match your filter.")
+            else:
+                for sector, sector_orders in sorted(grouped.items()):
+                    sector_total = sum(o["total_price_birr"] for o in sector_orders)
+                    st.markdown(f"### 🏷️ {sector} — {len(sector_orders)} order(s) · {sector_total:,.0f} Birr")
+
+                    for o in sector_orders:
+                        prod        = o.get("products") or {}
+                        pname       = prod.get("product_name", "Unknown product")
+                        unit        = prod.get("unit", "")
+                        seller_name = (prod.get("profiles") or {}).get("full_name", "Unknown seller")
+
+                        status_badge = {
+                            "pending":   "🟡 Pending",
+                            "confirmed": "🔵 Confirmed",
+                            "delivered": "🟢 Delivered",
+                            "cancelled": "🔴 Cancelled",
+                        }.get(o["status"], o["status"])
+
+                        with st.container(border=True):
+                            col_a, col_b, col_c = st.columns([3, 2, 2])
+                            with col_a:
+                                st.markdown(f"**{pname}**")
+                                st.caption(f"Seller: {seller_name} · Region: {prod.get('region', 'N/A')}")
+                                st.caption(f"Qty: {o['quantity_ordered']} {unit}")
+                                if o.get("notes"):
+                                    st.caption(f"📝 {o['notes']}")
+                            with col_b:
+                                st.metric("Total", f"{o['total_price_birr']:,.0f} Birr")
+                                st.caption(status_badge)
+                            with col_c:
+                                risk_lvl = o.get("fraud_risk_level", "Unknown")
+                                if risk_lvl != "Unknown":
+                                    rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
+                                    st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
+                                if o["status"] == "pending":
+                                    if st.button("❌ Cancel", key=f"cancel_{o['id']}"):
+                                        try:
+                                            supabase.table("orders").update(
+                                                {"status": "cancelled"}
+                                            ).eq("id", o["id"]).execute()
+                                            st.success("Order cancelled.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Cancel failed: {e}")
+
+                            # ── UPDATE ORDER (merchant only) ──
+                            if role == "merchant" and o["status"] not in ("cancelled", "delivered"):
+                                with st.expander("✏️ Update Order"):
+                                    new_qty = st.number_input(
+                                        "New Quantity",
+                                        min_value=0.1,
+                                        value=float(o["quantity_ordered"]),
+                                        step=1.0,
+                                        key=f"upd_qty_{o['id']}"
+                                    )
+                                    new_notes = st.text_area(
+                                        "Notes",
+                                        value=o.get("notes") or "",
+                                        key=f"upd_notes_{o['id']}"
+                                    )
+                                    new_status = st.selectbox(
+                                        "Update Status",
+                                        ["pending", "confirmed", "delivered", "cancelled"],
+                                        index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
+                                        key=f"upd_status_{o['id']}"
+                                    )
+                                    unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
+                                    new_total  = new_qty * unit_price
+                                    st.caption(f"New Total: **{new_total:,.0f} Birr**")
+
+                                    if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "quantity_ordered": new_qty,
+                                                "total_price_birr": new_total,
+                                                "notes":            new_notes,
+                                                "status":           new_status,
+                                            }).eq("id", o["id"]).execute()
+                                            st.success("✅ Order updated!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Update failed: {e}")
+
+                    st.divider()
 
         if st.session_state.agreement_product_id and st.session_state.agreement_merchant:
             m   = st.session_state.agreement_merchant
