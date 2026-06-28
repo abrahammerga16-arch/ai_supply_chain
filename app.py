@@ -1,18 +1,6 @@
 """
 AI-Powered Supply Chain System — Stage 5: Demand Forecasting
 Wolaita Sodo University | Department of ECE
-
-Builds on Stage 4 (Fraud Detection). Adds the fourth and final AI model:
-an LSTM neural network that forecasts demand for the next 1–4 weeks for
-any product-region pair, based on 12 weeks of historical patterns.
-
-New in Stage 5:
-- Producers see a "📈 Demand Forecast" chart on every listing they own
-- The chart shows the last 8 weeks of actual demand + next 4 weeks predicted
-- Trend indicator (↑ Rising / → Stable / ↓ Falling) helps with harvest planning
-- Model metrics (R²=0.96) shown so producers understand forecast confidence
-
-All Stages 1-4 features remain unchanged.
 """
 import streamlit as st
 from src.db import get_supabase_client
@@ -48,14 +36,12 @@ def get_profile(user_id: str):
 
 
 def sign_up(email, password, full_name, role, region, phone, merchant_prefs=None):
-    # Password validation
     if len(password) < 8:
         return False, "Password must be at least 8 characters long."
     if not any(c.isdigit() for c in password):
         return False, "Password must contain at least one number."
     if not any(c.isalpha() for c in password):
         return False, "Password must contain at least one letter."
-
     try:
         auth_res = supabase.auth.sign_up({"email": email, "password": password})
         if auth_res.user is None:
@@ -177,9 +163,12 @@ else:
     profile = st.session_state.profile
     role = profile["role"] if profile else None
 
-    page = st.tabs(["📦 Browse Products", "🛒 My Orders"] + (["➕ List a Product", "📋 My Listings"] if role == "producer" else []))
+    page = st.tabs(
+        ["📦 Browse Products", "🛒 My Orders", "⚙️ My Profile"] +
+        (["➕ List a Product", "📋 My Listings"] if role == "producer" else [])
+    )
 
-    # ── BROWSE PRODUCTS (everyone can see this) ──────────────
+    # ── BROWSE PRODUCTS ──────────────────────────────────────
     with page[0]:
         st.subheader("Browse Available Products")
 
@@ -221,8 +210,6 @@ else:
                                 "Quantity", min_value=1.0, max_value=float(p["quantity"]),
                                 value=1.0, key=f"qty_{p['id']}"
                             )
-
-                            # ── AI FRAUD RISK CHECK ─────────────────
                             total_preview = qty_to_order * p["price_birr"]
                             try:
                                 risk = check_fraud_risk(
@@ -240,8 +227,7 @@ else:
                                 if risk["risk_level"] == "High":
                                     st.warning(
                                         "⚠️ This transaction was flagged as **High Risk** by our fraud "
-                                        "detection system. The order will still be placed, but please "
-                                        "proceed with caution and verify the seller before paying."
+                                        "detection system. Please proceed with caution."
                                     )
                                 try:
                                     supabase.table("orders").insert({
@@ -279,9 +265,51 @@ else:
         except Exception as e:
             st.error(f"Could not load orders: {e}")
 
+    # ── MY PROFILE ──────────────────────────────────────────────
+    with page[2]:
+        st.subheader("My Profile")
+        st.caption(f"**{profile['full_name']}** · {profile['role'].capitalize()} · {profile['region']}")
+        st.divider()
+
+        if role == "merchant":
+            st.markdown("### 🏪 Buying Preferences")
+            st.caption("Update what you're looking to buy — this powers AI matching")
+
+            pref_sector = st.selectbox("Preferred Sector", SECTORS,
+                index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+                key="edit_pref_sector")
+            pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+            pref_budget = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+                value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
+            pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+                index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
+                key="edit_pref_quality")
+            pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+            pref_payment = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+                index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+                key="edit_pref_payment")
+
+            if st.button("💾 Save Preferences", use_container_width=True):
+                try:
+                    supabase.table("profiles").update({
+                        "preferred_sector": pref_sector,
+                        "preferred_product": pref_product,
+                        "max_budget_birr": pref_budget,
+                        "preferred_quality": pref_quality,
+                        "needs_delivery": pref_delivery,
+                        "payment_method": pref_payment,
+                    }).eq("id", st.session_state.user.id).execute()
+                    st.success("Preferences saved!")
+                    st.session_state.profile = get_profile(st.session_state.user.id)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to save: {e}")
+        else:
+            st.info("Profile settings for producers and customers coming soon.")
+
     # ── PRODUCER-ONLY: LIST A PRODUCT ───────────────────────────
     if role == "producer":
-        with page[2]:
+        with page[3]:
             st.subheader("List a New Product")
 
             p_sector = st.selectbox("Sector", SECTORS, key="new_p_sector")
@@ -293,7 +321,6 @@ else:
                 key="new_p_region"
             )
 
-            # ── AI PRICE RECOMMENDATION ─────────────────────────
             if p_name:
                 try:
                     rec = recommend_price(
@@ -337,7 +364,7 @@ else:
                             st.error(f"Failed to list product: {e}")
 
         # ── PRODUCER-ONLY: MY LISTINGS ──────────────────────────
-        with page[3]:
+        with page[4]:
             st.subheader("My Listings")
             try:
                 my_products = supabase.table("products").select("*") \
@@ -363,7 +390,6 @@ else:
                                     except Exception as e:
                                         st.error(f"Update failed: {e}")
 
-                            # ── AI SMART MATCHING ─────────────────────
                             if st.button("🤖 Find Best Matches", key=f"match_{p['id']}"):
                                 with st.spinner("Scoring compatibility with all merchants..."):
                                     try:
@@ -409,9 +435,8 @@ else:
                                         else:
                                             ranked = rank_merchants(listing_data, merchant_list)
                                             top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
-
                                             if not top_matches:
-                                                st.info("No strong matches found yet. Try adjusting price or quality grade.")
+                                                st.info("No strong matches found yet.")
                                             else:
                                                 st.markdown("**Top AI-Matched Merchants:**")
                                                 for r in top_matches:
@@ -421,7 +446,6 @@ else:
                                     except Exception as e:
                                         st.error(f"Matching failed: {e}")
 
-                            # ── AI DEMAND FORECAST ────────────────────────
                             st.markdown("---")
                             with st.spinner("Loading demand forecast..."):
                                 try:
@@ -437,7 +461,6 @@ else:
                                     f"| {trend_color} {trend_label[fc['trend']]}  "
                                     f"| Model R²={fc['r2']:.2f}  RMSE=±{fc['rmse']:,.0f} units"
                                 )
-
                                 import pandas as pd
                                 all_labels = [f"W-{7-i}" for i in range(8)] + [f"+{w}w" for w in fc["weeks"]]
                                 hist_series = fc["historical"] + [None] * 4
