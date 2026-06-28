@@ -460,6 +460,86 @@ if role in ("merchant", "customer"):
     with tab_orders:
         st.subheader("🛒 My Orders")
 
+        # ── MERCHANT DASHBOARD ──────────────────────────────
+        if role == "merchant":
+            has_prefs = profile.get("preferred_product") or profile.get("preferred_sector")
+            if not has_prefs:
+                st.warning("⚠️ You haven't set your buying preferences yet. Set them below to enable AI matching.")
+                with st.expander("🏪 Set Buying Preferences", expanded=True):
+                    pref_sector  = st.selectbox("Preferred Sector", SECTORS, key="dash_pref_sector")
+                    pref_product = st.text_input("Preferred Product (e.g. Teff, Coffee)", key="dash_pref_product")
+                    pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0, key="dash_pref_budget")
+                    pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"], key="dash_pref_quality")
+                    pref_delivery = st.checkbox("I need delivery", key="dash_pref_delivery")
+                    pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"], key="dash_pref_payment")
+
+                    if st.button("💾 Save Preferences", use_container_width=True, key="dash_save_prefs"):
+                        try:
+                            supabase.table("profiles").update({
+                                "preferred_sector":  pref_sector,
+                                "preferred_product": pref_product,
+                                "max_budget_birr":   pref_budget,
+                                "preferred_quality": pref_quality,
+                                "needs_delivery":    pref_delivery,
+                                "payment_method":    pref_payment,
+                            }).eq("id", st.session_state.user.id).execute()
+                            st.success("✅ Preferences saved! AI matching is now active.")
+                            st.session_state.profile = get_profile(st.session_state.user.id)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to save: {e}")
+            else:
+                st.info(
+                    f"🤖 AI Matching active — looking for **{profile.get('preferred_product', 'N/A')}** "
+                    f"in **{profile.get('preferred_sector', 'N/A')}** · "
+                    f"Budget: **{profile.get('max_budget_birr', 0):,.0f} Birr** · "
+                    f"Quality: **{profile.get('preferred_quality', 'Any')}**"
+                )
+                if st.button("✏️ Update Preferences", key="dash_update_prefs"):
+                    st.session_state.show_pref_form = True
+
+                if st.session_state.get("show_pref_form"):
+                    with st.expander("🏪 Update Buying Preferences", expanded=True):
+                        pref_sector  = st.selectbox("Preferred Sector", SECTORS,
+                            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+                            key="upd_pref_sector")
+                        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="upd_pref_product")
+                        pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+                            value=float(profile.get("max_budget_birr") or 0), key="upd_pref_budget")
+                        pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+                            index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
+                            key="upd_pref_quality")
+                        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="upd_pref_delivery")
+                        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+                            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+                            key="upd_pref_payment")
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("💾 Save", use_container_width=True, key="upd_save"):
+                                try:
+                                    supabase.table("profiles").update({
+                                        "preferred_sector":  pref_sector,
+                                        "preferred_product": pref_product,
+                                        "max_budget_birr":   pref_budget,
+                                        "preferred_quality": pref_quality,
+                                        "needs_delivery":    pref_delivery,
+                                        "payment_method":    pref_payment,
+                                    }).eq("id", st.session_state.user.id).execute()
+                                    st.success("✅ Preferences updated!")
+                                    st.session_state.profile = get_profile(st.session_state.user.id)
+                                    st.session_state.show_pref_form = False
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to save: {e}")
+                        with col2:
+                            if st.button("✖ Cancel", use_container_width=True, key="upd_cancel"):
+                                st.session_state.show_pref_form = False
+                                st.rerun()
+
+            st.divider()
+
+        # ── ORDERS LIST ─────────────────────────────────────
         try:
             orders = supabase.table("orders") \
                 .select("*, products(product_name, unit, region, profiles(full_name))") \
@@ -472,28 +552,23 @@ if role in ("merchant", "customer"):
         if not orders:
             st.info("You haven't placed any orders yet. Browse products to get started.")
         else:
-            # Summary metrics
-            total_orders  = len(orders)
-            total_spent   = sum(o["total_price_birr"] for o in orders)
-            pending       = sum(1 for o in orders if o["status"] == "pending")
+            total_spent = sum(o["total_price_birr"] for o in orders)
+            pending     = sum(1 for o in orders if o["status"] == "pending")
 
             m1, m2, m3 = st.columns(3)
-            m1.metric("Total Orders", total_orders)
+            m1.metric("Total Orders", len(orders))
             m2.metric("Total Spent", f"{total_spent:,.0f} Birr")
             m3.metric("Pending", pending)
             st.divider()
 
-            # Filter by status
-            status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"])
-
+            status_filter   = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"])
             filtered_orders = orders if status_filter == "All" else [o for o in orders if o["status"] == status_filter]
 
             for o in filtered_orders:
-                prod  = o.get("products") or {}
-                pname = prod.get("product_name", "Unknown product")
-                unit  = prod.get("unit", "")
-                seller_profile = prod.get("profiles") or {}
-                seller_name    = seller_profile.get("full_name", "Unknown seller")
+                prod        = o.get("products") or {}
+                pname       = prod.get("product_name", "Unknown product")
+                unit        = prod.get("unit", "")
+                seller_name = (prod.get("profiles") or {}).get("full_name", "Unknown seller")
 
                 status_badge = {
                     "pending":   "🟡 Pending",
@@ -516,10 +591,8 @@ if role in ("merchant", "customer"):
                         if risk_lvl != "Unknown":
                             rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                             st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
-
-                        # Cancel order if still pending
                         if o["status"] == "pending":
-                            if st.button("❌ Cancel Order", key=f"cancel_{o['id']}"):
+                            if st.button("❌ Cancel", key=f"cancel_{o['id']}"):
                                 try:
                                     supabase.table("orders").update(
                                         {"status": "cancelled"}
@@ -528,6 +601,71 @@ if role in ("merchant", "customer"):
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Cancel failed: {e}")
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: PROFILE
+# ════════════════════════════════════════════════════════════
+with tab_profile:
+    st.subheader("⚙️ My Profile")
+    st.caption(f"**{profile['full_name']}** · {profile['role'].capitalize()} · {profile['region']}")
+    st.divider()
+
+    if role == "merchant":
+        st.markdown("### 🏪 Buying Preferences")
+        pref_sector  = st.selectbox("Preferred Sector", SECTORS,
+            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+            key="edit_pref_sector")
+        pref_product = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+        pref_budget  = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+            value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
+        pref_quality = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+            index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
+            key="edit_pref_quality")
+        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+            key="edit_pref_payment")
+
+        if st.button("💾 Save Preferences", use_container_width=True, key="profile_save"):
+            try:
+                supabase.table("profiles").update({
+                    "preferred_sector":  pref_sector,
+                    "preferred_product": pref_product,
+                    "max_budget_birr":   pref_budget,
+                    "preferred_quality": pref_quality,
+                    "needs_delivery":    pref_delivery,
+                    "payment_method":    pref_payment,
+                }).eq("id", st.session_state.user.id).execute()
+                st.success("✅ Preferences saved!")
+                st.session_state.profile = get_profile(st.session_state.user.id)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to save: {e}")
+
+    elif role == "producer":
+        st.markdown("### 📊 My Stats")
+        try:
+            my_products = supabase.table("products").select("*") \
+                .eq("producer_id", st.session_state.user.id).execute().data
+            active = sum(1 for p in my_products if p["is_available"])
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Listings", len(my_products))
+            c2.metric("Active", active)
+            c3.metric("Inactive", len(my_products) - active)
+        except Exception as e:
+            st.error(f"Could not load stats: {e}")
+
+    else:
+        st.markdown("### 📊 My Stats")
+        try:
+            my_orders   = supabase.table("orders").select("*").eq("buyer_id", st.session_state.user.id).execute().data
+            total_spent = sum(o["total_price_birr"] for o in my_orders)
+            c1, c2 = st.columns(2)
+            c1.metric("Total Orders", len(my_orders))
+            c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
+        except Exception as e:
+            st.error(f"Could not load stats: {e}")
 
 
 # ════════════════════════════════════════════════════════════
