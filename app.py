@@ -316,6 +316,33 @@ def get_profile(user_id):
     res = supabase.table("profiles").select("*").eq("id", user_id).execute()
     return res.data[0] if res.data else None
 
+def send_notification(recipient_id, title, message, notif_type="info", order_id=None):
+    """Insert a notification row for a user. Silently fails so it never breaks the main flow."""
+    try:
+        payload = {
+            "recipient_id": recipient_id,
+            "title":        title,
+            "message":      message,
+            "type":         notif_type,
+            "is_read":      False,
+        }
+        if order_id:
+            payload["order_id"] = order_id
+        supabase.table("notifications").insert(payload).execute()
+    except Exception:
+        pass
+
+def get_unread_count(user_id):
+    """Return count of unread notifications for badge display. Returns 0 on any error."""
+    try:
+        res = supabase.table("notifications") \
+            .select("id", count="exact") \
+            .eq("recipient_id", user_id) \
+            .eq("is_read", False).execute()
+        return res.count or 0
+    except Exception:
+        return 0
+
 import re as _re
 
 def _sanitize_email(email: str) -> str:
@@ -450,15 +477,18 @@ if st.session_state.user is None:
 profile = st.session_state.profile
 role    = profile["role"] if profile else None
 
+_unread = get_unread_count(st.session_state.user.id) if st.session_state.user else 0
+_notif_label = f"🔔 Notifications ({_unread})" if _unread > 0 else "🔔 Notifications"
+
 if role == "producer":
-    tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "📬 Incoming Orders", "⚙️ Profile"])
-    tab_browse, tab_add, tab_listings, tab_incoming, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "📬 Incoming Orders", _notif_label, "⚙️ Profile"])
+    tab_browse, tab_add, tab_listings, tab_incoming, tab_notif, tab_profile = tabs
 elif role == "merchant":
-    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "🛍️ Place Order"])
-    tab_browse, tab_matches, tab_orders, tab_place = tabs
+    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "🛍️ Place Order", _notif_label])
+    tab_browse, tab_matches, tab_orders, tab_place, tab_notif = tabs
 else:
-    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "⚙️ Profile"])
-    tab_browse, tab_matches, tab_orders, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", _notif_label, "⚙️ Profile"])
+    tab_browse, tab_matches, tab_orders, tab_notif, tab_profile = tabs
 
 
 # ════════════════════════════════════════════════════════════
@@ -1191,14 +1221,41 @@ if role == "producer":
                                             else:
                                                 qty_msg = "Stock not updated (no product ID)"
 
-                                            # 3. Show immediate result — no rerun yet so user sees it
+                                            # 3. Send notification to buyer (merchant/customer)
+                                            send_notification(
+                                                recipient_id = o["buyer_id"],
+                                                title        = "✅ Order Confirmed",
+                                                message      = (
+                                                    f"Your order for **{pname}** ({qty_ordered:,.1f} {unit}) "
+                                                    f"worth **{o['total_price_birr']:,.0f} Birr** has been "
+                                                    f"confirmed by the producer. Prepare for delivery."
+                                                ),
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
+                                            # 4. Send notification to producer (self-confirmation receipt)
+                                            send_notification(
+                                                recipient_id = st.session_state.user.id,
+                                                title        = "✅ You Confirmed an Order",
+                                                message      = (
+                                                    f"You confirmed **{buyer_name}**'s order for "
+                                                    f"**{pname}** — {qty_ordered:,.1f} {unit} · "
+                                                    f"{o['total_price_birr']:,.0f} Birr. "
+                                                    f"{qty_msg.replace('**','')}"
+                                                ),
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
+
+                                            # 5. Show immediate result
                                             st.success(
                                                 f"✅ **Order Confirmed!**\n\n"
                                                 f"👤 Buyer: **{buyer_name}**\n\n"
                                                 f"📦 Product: **{pname}**\n\n"
                                                 f"🔢 Qty ordered: **{qty_ordered:,.1f} {unit}**\n\n"
                                                 f"💰 Value: **{o['total_price_birr']:,.0f} Birr**\n\n"
-                                                f"📉 {qty_msg}"
+                                                f"📉 {qty_msg}\n\n"
+                                                f"🔔 Notification sent to **{buyer_name}**"
                                             )
                                             st.rerun()
                                         except Exception as e:
@@ -1213,11 +1270,26 @@ if role == "producer":
                                             supabase.table("orders").update({
                                                 "status": "cancelled",
                                             }).eq("id", o["id"]).execute()
+                                            # Notify buyer
+                                            send_notification(
+                                                recipient_id = o["buyer_id"],
+                                                title        = "🚫 Order Cancelled",
+                                                message      = (
+                                                    f"Your order for **{pname}** "
+                                                    f"({o['quantity_ordered']:,.1f} {unit} · "
+                                                    f"{o['total_price_birr']:,.0f} Birr) "
+                                                    f"was cancelled by the producer. "
+                                                    f"Please browse for alternative products."
+                                                ),
+                                                notif_type   = "warning",
+                                                order_id     = o["id"],
+                                            )
                                             st.warning(
                                                 f"🚫 **Order Cancelled**\n\n"
                                                 f"👤 Buyer: **{buyer_name}** · "
                                                 f"📦 **{pname}** · "
-                                                f"💰 {o['total_price_birr']:,.0f} Birr"
+                                                f"💰 {o['total_price_birr']:,.0f} Birr\n\n"
+                                                f"🔔 Buyer notified."
                                             )
                                             st.rerun()
                                         except Exception as e:
@@ -1233,12 +1305,40 @@ if role == "producer":
                                             supabase.table("orders").update({
                                                 "status": "delivered",
                                             }).eq("id", o["id"]).execute()
+                                            # Notify buyer
+                                            send_notification(
+                                                recipient_id = o["buyer_id"],
+                                                title        = "🚚 Order Delivered!",
+                                                message      = (
+                                                    f"Your order for **{pname}** "
+                                                    f"({o['quantity_ordered']:,.1f} {unit} · "
+                                                    f"{o['total_price_birr']:,.0f} Birr) "
+                                                    f"has been marked as delivered by the producer. "
+                                                    f"Please confirm receipt."
+                                                ),
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
+                                            # Notify producer (self-receipt)
+                                            send_notification(
+                                                recipient_id = st.session_state.user.id,
+                                                title        = "🚚 Delivery Recorded",
+                                                message      = (
+                                                    f"You marked **{pname}** "
+                                                    f"({o['quantity_ordered']:,.1f} {unit}) "
+                                                    f"as delivered to **{buyer_name}** — "
+                                                    f"{o['total_price_birr']:,.0f} Birr."
+                                                ),
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
                                             st.success(
                                                 f"🚚 **Delivered!**\n\n"
                                                 f"👤 Buyer: **{buyer_name}**\n\n"
                                                 f"📦 Product: **{pname}** — "
                                                 f"{o['quantity_ordered']:,.1f} {unit}\n\n"
-                                                f"💰 **{o['total_price_birr']:,.0f} Birr** received"
+                                                f"💰 **{o['total_price_birr']:,.0f} Birr** received\n\n"
+                                                f"🔔 Delivery notification sent to **{buyer_name}**"
                                             )
                                             st.rerun()
                                         except Exception as e:
@@ -1722,6 +1822,130 @@ if role == "merchant":
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Order failed: {e}")
+
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: NOTIFICATIONS (All roles)
+# ════════════════════════════════════════════════════════════
+with tab_notif:
+    uid = st.session_state.user.id
+
+    # Header row with mark-all-read button
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        st.subheader("🔔 Notifications")
+        st.caption("Order confirmations, deliveries, and updates appear here")
+    with hcol2:
+        if st.button("✅ Mark All Read", use_container_width=True, key="mark_all_read"):
+            try:
+                supabase.table("notifications") \
+                    .update({"is_read": True}) \
+                    .eq("recipient_id", uid) \
+                    .eq("is_read", False).execute()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+    # Load notifications newest-first
+    try:
+        notifs = supabase.table("notifications") \
+            .select("*") \
+            .eq("recipient_id", uid) \
+            .order("created_at", desc=True) \
+            .limit(50).execute().data or []
+    except Exception as e:
+        st.error(f"Could not load notifications: {e}")
+        notifs = []
+
+    if not notifs:
+        st.info("No notifications yet. Notifications appear here when orders are confirmed, delivered, or cancelled.")
+    else:
+        unread_notifs = [n for n in notifs if not n.get("is_read")]
+        read_notifs   = [n for n in notifs if n.get("is_read")]
+
+        if unread_notifs:
+            st.markdown(f"### 🔴 Unread ({len(unread_notifs)})")
+            for n in unread_notifs:
+                _icon = {
+                    "success": "✅",
+                    "warning": "🚫",
+                    "error":   "❌",
+                    "info":    "ℹ️",
+                }.get(n.get("type", "info"), "🔔")
+
+                _bg = {
+                    "success": "#e8f8f5",
+                    "warning": "#fef9e7",
+                    "error":   "#fdedec",
+                    "info":    "#eaf2fb",
+                }.get(n.get("type", "info"), "#eaf2fb")
+
+                st.markdown(
+                    f"<div style='background:{_bg};border-radius:8px;"
+                    f"padding:14px 16px;margin-bottom:10px;"
+                    f"border-left:4px solid #{"117a65" if n.get("type")=="success" else "f39c12" if n.get("type")=="warning" else "e74c3c" if n.get("type")=="error" else "1a5276"};'>"
+                    f"<b>{_icon} {n['title']}</b><br>"
+                    f"{n['message']}<br>"
+                    f"<small style='color:#888;'>"
+                    + (
+                        datetime.datetime.fromisoformat(
+                            n['created_at'].replace('Z', '+00:00')
+                        ).strftime('%d %b %Y, %H:%M')
+                        if n.get('created_at') else ''
+                    )
+                    + f"</small></div>",
+                    unsafe_allow_html=True
+                )
+                ncol1, ncol2 = st.columns([1, 5])
+                with ncol1:
+                    if st.button("✓ Read", key=f"read_{n['id']}", use_container_width=True):
+                        try:
+                            supabase.table("notifications").update(
+                                {"is_read": True}
+                            ).eq("id", n["id"]).execute()
+                            st.rerun()
+                        except Exception:
+                            pass
+
+        if read_notifs:
+            with st.expander(f"📂 Read notifications ({len(read_notifs)})", expanded=False):
+                for n in read_notifs:
+                    _icon = {
+                        "success": "✅",
+                        "warning": "🚫",
+                        "error":   "❌",
+                        "info":    "ℹ️",
+                    }.get(n.get("type", "info"), "🔔")
+                    created = ""
+                    if n.get("created_at"):
+                        try:
+                            created = datetime.datetime.fromisoformat(
+                                n["created_at"].replace("Z", "+00:00")
+                            ).strftime("%d %b %Y, %H:%M")
+                        except Exception:
+                            pass
+                    st.markdown(
+                        f"<div style='background:#f8f9fa;border-radius:6px;"
+                        f"padding:10px 14px;margin-bottom:6px;opacity:0.75;'>"
+                        f"<b>{_icon} {n['title']}</b><br>"
+                        f"<span style='color:#555;'>{n['message']}</span><br>"
+                        f"<small style='color:#aaa;'>{created}</small></div>",
+                        unsafe_allow_html=True
+                    )
+
+        # Clear all button at bottom
+        if notifs:
+            st.divider()
+            if st.button("🗑️ Clear All Notifications", key="clear_all_notifs", use_container_width=False):
+                try:
+                    supabase.table("notifications") \
+                        .delete() \
+                        .eq("recipient_id", uid).execute()
+                    st.success("All notifications cleared.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
 
 
 # ════════════════════════════════════════════════════════════
