@@ -455,8 +455,8 @@ if role == "producer":
     tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "⚙️ Profile"])
     tab_browse, tab_add, tab_listings, tab_profile = tabs
 elif role == "merchant":
-    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "⚙️ Profile"])
-    tab_browse, tab_matches, tab_orders, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "🛍️ Place Order"])
+    tab_browse, tab_matches, tab_orders, tab_place = tabs
 else:
     tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "⚙️ Profile"])
     tab_browse, tab_matches, tab_orders, tab_profile = tabs
@@ -1308,30 +1308,34 @@ if role in ("merchant", "customer"):
 
 
 # ════════════════════════════════════════════════════════════
-# TAB: PROFILE (All roles)
+# TAB: PLACE ORDER (Merchant only)
 # ════════════════════════════════════════════════════════════
-with tab_profile:
-    st.subheader("⚙️ My Profile")
-    st.caption(f"**{profile['full_name']}** · {profile['role'].capitalize()} · {profile['region']}")
-    st.divider()
+if role == "merchant":
+    with tab_place:
+        st.subheader("🛍️ Place Order")
+        st.caption(f"Logged in as **{profile['full_name']}** · {profile['region']}")
+        st.divider()
 
-    if role == "merchant":
+        # ── BUYING PREFERENCES ──────────────────────────────
         st.markdown("### 🏪 Buying Preferences")
-        st.caption("Set your preferences to power AI product matching")
+        st.caption("Set your preferences to power AI product matching in Best Matches tab")
 
-        pref_sector   = st.selectbox("Preferred Sector", SECTORS,
-            index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
-            key="edit_pref_sector")
-        pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
-        pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
-            value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
-        pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
-            index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
-            key="edit_pref_quality")
-        pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
-        pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
-            index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
-            key="edit_pref_payment")
+        pf_col1, pf_col2 = st.columns(2)
+        with pf_col1:
+            pref_sector   = st.selectbox("Preferred Sector", SECTORS,
+                index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+                key="edit_pref_sector")
+            pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+            pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+                value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
+        with pf_col2:
+            pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+                index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
+                key="edit_pref_quality")
+            pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+            pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+                index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+                key="edit_pref_payment")
 
         if st.button("💾 Save Preferences", use_container_width=True, key="prof_save_merchant"):
             try:
@@ -1349,7 +1353,96 @@ with tab_profile:
             except Exception as e:
                 st.error(f"Failed to save: {e}")
 
-    elif role == "producer":
+        st.divider()
+
+        # ── DIRECT PLACE ORDER ───────────────────────────────
+        st.markdown("### 🛒 Place a New Order")
+        st.caption("Search and order any available product directly")
+
+        po_col1, po_col2, po_col3 = st.columns(3)
+        with po_col1:
+            po_sector = st.selectbox("Sector", ["All"] + SECTORS, key="po_sector")
+        with po_col2:
+            po_region = st.selectbox("Region", ["All"] + REGIONS, key="po_region")
+        with po_col3:
+            po_search = st.text_input("🔍 Search Product", key="po_search")
+
+        try:
+            po_query = supabase.table("products").select("*, profiles(full_name, phone, region)").eq("is_available", True)
+            if po_sector != "All":
+                po_query = po_query.eq("sector", po_sector)
+            if po_region != "All":
+                po_query = po_query.eq("region", po_region)
+            po_products = po_query.execute().data or []
+            if po_search:
+                po_products = [p for p in po_products if po_search.lower() in p["product_name"].lower()]
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            po_products = []
+
+        if not po_products:
+            st.info("No products found. Try adjusting your filters.")
+        else:
+            st.markdown(f"**{len(po_products)} product(s) available:**")
+            for p in po_products:
+                seller = p.get("profiles") or {}
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    with c1:
+                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                        st.caption(p.get("description") or "No description")
+                        st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']} · 📞 {seller.get('phone', 'N/A')}")
+                    with c2:
+                        st.metric("Price / Unit", f"{p['price_birr']:,.0f} Birr")
+                        st.caption(f"Available: {p['quantity']} {p['unit']}")
+                    with c3:
+                        _max_qty = max(1.0, float(p["quantity"]))
+                        po_qty = st.number_input(
+                            "Quantity", min_value=1.0, max_value=_max_qty,
+                            value=min(1.0, _max_qty), step=1.0,
+                            key=f"po_qty_{p['id']}"
+                        )
+                        po_total = po_qty * p["price_birr"]
+                        st.caption(f"Total: **{po_total:,.0f} Birr**")
+
+                        try:
+                            risk = check_fraud_risk(
+                                sector=p["sector"], product=p["product_name"],
+                                region=p["region"], payment_method=pref_payment,
+                                quantity=po_qty, agreed_price_birr=p["price_birr"],
+                                market_price_birr=p["price_birr"],
+                            )
+                            rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk["risk_level"], "⚪")
+                            st.caption(f"{rb} Fraud Risk: **{risk['risk_level']}**")
+                        except Exception:
+                            risk = {"risk_level": "Unknown", "fraud_probability": 0.0}
+
+                        if st.button("🛒 Place Order", key=f"po_order_{p['id']}", use_container_width=True):
+                            if risk.get("risk_level") == "High":
+                                st.warning("⚠️ High fraud risk — proceed with caution.")
+                            try:
+                                supabase.table("orders").insert({
+                                    "product_id":        p["id"],
+                                    "buyer_id":          st.session_state.user.id,
+                                    "quantity_ordered":  po_qty,
+                                    "total_price_birr":  po_total,
+                                    "status":            "pending",
+                                    "fraud_risk_level":  risk.get("risk_level", "Unknown"),
+                                    "fraud_probability": risk.get("fraud_probability", 0.0),
+                                }).execute()
+                                st.success(f"✅ Order placed for **{p['product_name']}** — {po_total:,.0f} Birr! Check My Orders tab.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Order failed: {e}")
+
+# ════════════════════════════════════════════════════════════
+# TAB: PROFILE (Producer & Customer only)
+# ════════════════════════════════════════════════════════════
+if role == "producer":
+    with tab_profile:
+        st.subheader("⚙️ My Profile")
+        st.caption(f"**{profile['full_name']}** · Producer · {profile['region']}")
+        st.divider()
         st.markdown("### 📊 My Stats")
         try:
             my_products = supabase.table("products").select("*") \
@@ -1363,7 +1456,11 @@ with tab_profile:
         except Exception as e:
             st.error(f"Could not load stats: {e}")
 
-    else:
+elif role == "customer":
+    with tab_profile:
+        st.subheader("⚙️ My Profile")
+        st.caption(f"**{profile['full_name']}** · Customer · {profile['region']}")
+        st.divider()
         st.markdown("### 📊 My Stats")
         try:
             my_orders = supabase.table("orders").select("*") \
