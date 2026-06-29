@@ -486,9 +486,10 @@ with tab_browse:
                     st.caption(f"Available: {p['quantity']} {p['unit']}")
                 with c3:
                     if role in ("merchant", "customer"):
+                        _qty_max = max(1.0, float(p["quantity"]))
                         qty_to_order = st.number_input(
-                            "Qty", min_value=1.0, max_value=float(p["quantity"]),
-                            value=1.0, key=f"qty_{p['id']}"
+                            "Qty", min_value=1.0, max_value=_qty_max,
+                            value=min(1.0, _qty_max), key=f"qty_{p['id']}"
                         )
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
@@ -590,9 +591,10 @@ if role in ("merchant", "customer"):
                         st.metric("Price", f"{p['price_birr']:,.0f} Birr")
                         st.caption(f"Available: {p['quantity']} {p['unit']}")
                     with c3:
+                        _qty_max = max(1.0, float(p["quantity"]))
                         qty_to_order = st.number_input(
-                            "Qty", min_value=1.0, max_value=float(p["quantity"]),
-                            value=1.0, key=f"match_qty_{p['id']}"
+                            "Qty", min_value=1.0, max_value=_qty_max,
+                            value=min(1.0, _qty_max), key=f"match_qty_{p['id']}"
                         )
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
@@ -704,10 +706,11 @@ if role == "producer":
 
                 with col_terms:
                     st.markdown("#### 📝 Agreement Terms")
+                    agr_qty_max  = max(0.1, float(prod.get("quantity", 1000)))
                     agr_qty      = st.number_input("Quantity",
                                                    min_value=0.1,
-                                                   max_value=float(prod.get("quantity", 1000)),
-                                                   value=min(10.0, float(prod.get("quantity", 10))),
+                                                   max_value=agr_qty_max,
+                                                   value=min(10.0, agr_qty_max),
                                                    step=1.0, key="agr_qty")
                     agr_price    = st.number_input("Agreed Price per Unit (Birr)",
                                                    min_value=1.0,
