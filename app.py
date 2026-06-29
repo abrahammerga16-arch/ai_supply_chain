@@ -228,7 +228,6 @@ def generate_agreement_pdf(producer_name, producer_phone, producer_region,
 
     story.append(Spacer(1, 14))
 
-    # ── CONFIRMATION STATUS ──
     story.append(Paragraph(f"{next_section + 1}. CONFIRMATION STATUS", section_style))
     p_status = "✅ CONFIRMED" if producer_confirmed else "⏳ PENDING"
     m_status = "✅ CONFIRMED" if merchant_confirmed else "⏳ PENDING"
@@ -452,8 +451,8 @@ profile = st.session_state.profile
 role    = profile["role"] if profile else None
 
 if role == "producer":
-    tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "⚙️ Profile"])
-    tab_browse, tab_add, tab_listings, tab_profile = tabs
+    tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "📬 Incoming Orders", "⚙️ Profile"])
+    tab_browse, tab_add, tab_listings, tab_incoming, tab_profile = tabs
 elif role == "merchant":
     tabs = st.tabs(["📦 Browse", "🤖 Best Matches", "🛒 My Orders", "🛍️ Place Order"])
     tab_browse, tab_matches, tab_orders, tab_place = tabs
@@ -568,10 +567,10 @@ if role in ("merchant", "customer"):
             st.info("No products available for matching.")
         else:
             buyer_region = profile.get("region", "")
-            pref_sector = profile.get("preferred_sector", "")
+            pref_sector  = profile.get("preferred_sector", "")
             pref_product = (profile.get("preferred_product") or "").lower()
             pref_quality = profile.get("preferred_quality", "Any")
-            max_budget = float(profile.get("max_budget_birr") or 0)
+            max_budget   = float(profile.get("max_budget_birr") or 0)
 
             def score_product(p):
                 score = 0.0
@@ -590,14 +589,14 @@ if role in ("merchant", "customer"):
                     score += 5
                 return score
 
-            scored = sorted(all_products, key=score_product, reverse=True)
+            scored      = sorted(all_products, key=score_product, reverse=True)
             top_products = scored[:10]
 
             st.markdown(f"**Showing top {len(top_products)} matches for you:**")
 
             for p in top_products:
-                sc = score_product(p)
-                pct = min(int(sc), 100)
+                sc     = score_product(p)
+                pct    = min(int(sc), 100)
                 seller = p.get("profiles") or {}
 
                 with st.container(border=True):
@@ -745,7 +744,6 @@ if role == "producer":
                     agr_total    = agr_qty * agr_price
                     st.info(f"💰 Total: **{agr_total:,.0f} Birr**")
 
-                # ── PREVIEW PDF BEFORE CONFIRMING ──
                 if st.button("👁️ Preview Agreement PDF", use_container_width=True, key="preview_agr_btn"):
                     preview_pdf = generate_agreement_pdf(
                         producer_name    = profile.get("full_name", ""),
@@ -783,8 +781,8 @@ if role == "producer":
                                 "status":                   "pending",
                                 "fraud_risk_level":         "Low",
                                 "fraud_probability":        0.05,
-                                "producer_confirmed":       True,   # Producer confirms on creation
-                                "merchant_confirmed":       False,  # Merchant must accept
+                                "producer_confirmed":       True,
+                                "merchant_confirmed":       False,
                                 "agreement_delivery_date":  str(agr_delivery),
                                 "agreement_payment_method": agr_payment,
                                 "notes": (
@@ -796,7 +794,6 @@ if role == "producer":
                             }).execute()
                             order_id = order_res.data[0]["id"] if order_res.data else "N/A"
 
-                            # Generate and store PDF
                             pdf_bytes = generate_agreement_pdf(
                                 producer_name    = profile.get("full_name", ""),
                                 producer_phone   = profile.get("phone", ""),
@@ -1019,6 +1016,267 @@ if role == "producer":
 
 
 # ════════════════════════════════════════════════════════════
+# TAB: INCOMING ORDERS (Producer only)
+# ════════════════════════════════════════════════════════════
+if role == "producer":
+    with tab_incoming:
+        st.subheader("📬 Incoming Orders from Merchants & Customers")
+        st.caption("All orders placed on your products — confirm, deliver, or cancel them here")
+
+        # ── Load producer's product IDs ──
+        try:
+            my_prod_ids_res = supabase.table("products").select("id") \
+                .eq("producer_id", st.session_state.user.id).execute()
+            my_prod_ids = [p["id"] for p in (my_prod_ids_res.data or [])]
+        except Exception as e:
+            st.error(f"Could not load your products: {e}")
+            my_prod_ids = []
+
+        if not my_prod_ids:
+            st.info("You have no listed products yet. Add products first to receive orders.")
+        else:
+            try:
+                incoming = supabase.table("orders") \
+                    .select("*, products(product_name, unit, sector, quality_grade, region, producer_id), profiles(full_name, phone, region)") \
+                    .in_("product_id", my_prod_ids) \
+                    .order("created_at", desc=True).execute().data or []
+            except Exception as e:
+                st.error(f"Could not load incoming orders: {e}")
+                incoming = []
+
+            if not incoming:
+                st.info("No orders received yet. Once a merchant or customer orders your product, it will appear here instantly.")
+            else:
+                # ── Summary metrics ──
+                total_rev       = sum(o["total_price_birr"] for o in incoming if o["status"] == "confirmed")
+                pending_count   = sum(1 for o in incoming if o["status"] == "pending")
+                confirmed_count = sum(1 for o in incoming if o["status"] == "confirmed")
+                delivered_count = sum(1 for o in incoming if o["status"] == "delivered")
+                cancelled_count = sum(1 for o in incoming if o["status"] == "cancelled")
+
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Total Orders", len(incoming))
+                m2.metric("🟡 Pending", pending_count)
+                m3.metric("🔵 Confirmed", confirmed_count)
+                m4.metric("🟢 Delivered", delivered_count)
+                m5.metric("💰 Confirmed Revenue", f"{total_rev:,.0f} Birr")
+                st.divider()
+
+                # ── Status filter ──
+                inc_status_filter = st.selectbox(
+                    "Filter by Status",
+                    ["All", "pending", "confirmed", "delivered", "cancelled"],
+                    key="inc_status_filter"
+                )
+                filtered_incoming = incoming if inc_status_filter == "All" else \
+                    [o for o in incoming if o["status"] == inc_status_filter]
+
+                if not filtered_incoming:
+                    st.info("No orders match this filter.")
+                else:
+                    st.markdown(f"**{len(filtered_incoming)} order(s):**")
+
+                    for o in filtered_incoming:
+                        prod        = o.get("products") or {}
+                        buyer       = o.get("profiles") or {}
+                        pname       = prod.get("product_name", "Unknown")
+                        unit        = prod.get("unit", "")
+                        buyer_name  = buyer.get("full_name", "Unknown buyer")
+                        buyer_phone = buyer.get("phone", "N/A")
+                        buyer_region= buyer.get("region", "N/A")
+                        is_agreement = bool(o.get("agreement_delivery_date"))
+                        prod_confirmed  = o.get("producer_confirmed")
+                        merch_confirmed = o.get("merchant_confirmed")
+                        both_confirmed  = bool(prod_confirmed) and bool(merch_confirmed)
+
+                        status_badge = {
+                            "pending":   "🟡 Pending",
+                            "confirmed": "🔵 Confirmed",
+                            "delivered": "🟢 Delivered",
+                            "cancelled": "🔴 Cancelled",
+                        }.get(o["status"], o["status"])
+
+                        # Highlight new pending orders
+                        if o["status"] == "pending":
+                            st.markdown(
+                                "<div style='border-left:4px solid #f39c12;"
+                                "padding-left:8px;margin-bottom:4px;'>"
+                                "🆕 <b>New Order Received</b></div>",
+                                unsafe_allow_html=True
+                            )
+
+                        with st.container(border=True):
+                            col_a, col_b, col_c = st.columns([3, 2, 2])
+
+                            with col_a:
+                                st.markdown(
+                                    f"**{pname}** · {prod.get('sector','N/A')} · "
+                                    f"Grade **{prod.get('quality_grade','N/A')}**"
+                                )
+                                st.caption(
+                                    f"👤 Buyer: **{buyer_name}** · "
+                                    f"📞 {buyer_phone} · 📍 {buyer_region}"
+                                )
+                                st.caption(
+                                    f"Qty: **{o['quantity_ordered']} {unit}** · "
+                                    f"Region: {prod.get('region','N/A')}"
+                                )
+                                if is_agreement:
+                                    st.caption(
+                                        f"📑 **Agreement Order** · "
+                                        f"Delivery: {o.get('agreement_delivery_date','N/A')} · "
+                                        f"Payment: {o.get('agreement_payment_method','N/A')}"
+                                    )
+                                if o.get("notes"):
+                                    st.caption(f"📝 {o['notes']}")
+                                risk_lvl = o.get("fraud_risk_level", "Unknown")
+                                if risk_lvl and risk_lvl != "Unknown":
+                                    rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
+                                    st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
+
+                            with col_b:
+                                st.metric("Order Value", f"{o['total_price_birr']:,.0f} Birr")
+                                st.caption(status_badge)
+                                created = o.get("created_at", "")
+                                if created:
+                                    try:
+                                        dt = datetime.datetime.fromisoformat(
+                                            created.replace("Z", "+00:00")
+                                        )
+                                        st.caption(f"🕐 {dt.strftime('%d %b %Y, %H:%M')}")
+                                    except Exception:
+                                        st.caption(f"🕐 {created[:16]}")
+                                if is_agreement:
+                                    if both_confirmed:
+                                        st.success("🤝 Both Confirmed")
+                                    elif prod_confirmed and not merch_confirmed:
+                                        st.warning("⏳ Awaiting Merchant")
+                                    elif not prod_confirmed:
+                                        st.warning("⏳ Awaiting Your Action")
+
+                            with col_c:
+                                # ── PRODUCER ACTIONS ──
+                                if o["status"] == "pending" and not is_agreement:
+                                    # Regular order — producer can confirm or cancel
+                                    if st.button(
+                                        "✅ Confirm Order",
+                                        key=f"inc_confirm_{o['id']}",
+                                        use_container_width=True
+                                    ):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "status": "confirmed",
+                                                "producer_confirmed": True,
+                                            }).eq("id", o["id"]).execute()
+                                            st.success(f"Order confirmed for {buyer_name}!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                                    if st.button(
+                                        "❌ Cancel Order",
+                                        key=f"inc_cancel_{o['id']}",
+                                        use_container_width=True
+                                    ):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "status": "cancelled",
+                                            }).eq("id", o["id"]).execute()
+                                            st.warning("Order cancelled.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                                elif o["status"] == "confirmed":
+                                    if st.button(
+                                        "🚚 Mark as Delivered",
+                                        key=f"inc_deliver_{o['id']}",
+                                        use_container_width=True
+                                    ):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "status": "delivered",
+                                            }).eq("id", o["id"]).execute()
+                                            st.success("Marked as delivered!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                                # Agreement PDF button
+                                if is_agreement:
+                                    if st.button(
+                                        "📄 View Agreement PDF",
+                                        key=f"inc_pdf_{o['id']}",
+                                        use_container_width=True
+                                    ):
+                                        try:
+                                            buyer_profile_res = supabase.table("profiles") \
+                                                .select("*").eq("id", o["buyer_id"]).execute()
+                                            buyer_profile = buyer_profile_res.data[0] \
+                                                if buyer_profile_res.data else {}
+                                        except Exception:
+                                            buyer_profile = {}
+
+                                        delivery_str = datetime.date.today()
+                                        payment_str  = "Bank Transfer"
+                                        if o.get("agreement_delivery_date"):
+                                            try:
+                                                delivery_str = datetime.date.fromisoformat(
+                                                    o["agreement_delivery_date"]
+                                                )
+                                            except Exception:
+                                                pass
+                                        if o.get("agreement_payment_method"):
+                                            payment_str = o["agreement_payment_method"]
+
+                                        pdf_bytes = generate_agreement_pdf(
+                                            producer_name      = profile.get("full_name", ""),
+                                            producer_phone     = profile.get("phone", ""),
+                                            producer_region    = profile.get("region", ""),
+                                            merchant_name      = buyer_profile.get("full_name", buyer_name),
+                                            merchant_phone     = buyer_profile.get("phone", ""),
+                                            merchant_region    = buyer_profile.get("region", ""),
+                                            product_name       = pname,
+                                            sector             = prod.get("sector", ""),
+                                            quality_grade      = prod.get("quality_grade", ""),
+                                            quantity           = o["quantity_ordered"],
+                                            unit               = unit,
+                                            price_per_unit     = (
+                                                o["total_price_birr"] / o["quantity_ordered"]
+                                                if o["quantity_ordered"] else 0
+                                            ),
+                                            total_price        = o["total_price_birr"],
+                                            delivery_date      = delivery_str,
+                                            payment_method     = payment_str,
+                                            notes              = o.get("notes", ""),
+                                            agreement_id       = str(o["id"]),
+                                            producer_confirmed = bool(prod_confirmed),
+                                            merchant_confirmed = bool(merch_confirmed),
+                                        )
+                                        st.session_state.agreement_preview_pdf = pdf_bytes
+                                        st.session_state.agreement_preview_ref = str(o["id"])
+                                        st.rerun()
+
+            # ── PDF preview popup for incoming tab ──
+            if st.session_state.get("agreement_preview_pdf"):
+                st.divider()
+                st.subheader("📄 Agreement Document")
+                ref = st.session_state.get("agreement_preview_ref", "agreement")
+                st.markdown(
+                    download_pdf_link(
+                        st.session_state.agreement_preview_pdf,
+                        f"Agreement-{ref[:8].upper()}.pdf",
+                        f"📥 Download Agreement PDF (Ref: {ref[:8].upper()})"
+                    ),
+                    unsafe_allow_html=True
+                )
+                if st.button("✖ Close Preview", key="close_inc_preview_pdf"):
+                    st.session_state.agreement_preview_pdf = None
+                    st.session_state.agreement_preview_ref = None
+                    st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
 # TAB: MY ORDERS (Merchant / Customer)
 # ════════════════════════════════════════════════════════════
 if role in ("merchant", "customer"):
@@ -1033,15 +1291,15 @@ if role in ("merchant", "customer"):
                     f"in **{profile.get('preferred_sector', 'N/A')}** · "
                     f"Budget: **{profile.get('max_budget_birr', 0):,.0f} Birr** · "
                     f"Quality: **{profile.get('preferred_quality', 'Any')}** — "
-                    f"update preferences in ⚙️ Profile"
+                    f"update preferences in 🛍️ Place Order"
                 )
             else:
-                st.warning("⚠️ No buying preferences set yet — go to ⚙️ Profile to enable AI matching.")
+                st.warning("⚠️ No buying preferences set yet — go to 🛍️ Place Order to enable AI matching.")
             st.divider()
 
         try:
             orders = supabase.table("orders") \
-                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, profiles(full_name, phone, region))") \
+                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, producer_id, profiles(full_name, phone, region))") \
                 .eq("buyer_id", st.session_state.user.id) \
                 .order("created_at", desc=True).execute().data
             if orders is None:
@@ -1052,7 +1310,6 @@ if role in ("merchant", "customer"):
 
         if not orders:
             st.info("You haven't placed any orders yet. Browse products to get started.")
-            # ── Debug: show raw count to detect RLS issues ──
             with st.expander("🔍 Debug: Check if orders exist in DB"):
                 try:
                     raw = supabase.table("orders").select("id, buyer_id, status, created_at") \
@@ -1089,7 +1346,6 @@ if role in ("merchant", "customer"):
             m5.metric("Delivered", delivered)
             st.divider()
 
-            # ── FILTERS ──
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 status_filter = st.selectbox(
@@ -1135,9 +1391,6 @@ if role in ("merchant", "customer"):
                         "cancelled": "🔴 Cancelled",
                     }.get(o["status"], o["status"])
 
-                    # ── Agreement detection ──
-                    # Use agreement_delivery_date as the reliable signal — regular orders never have it.
-                    # producer_confirmed/merchant_confirmed may not exist in older DB schemas.
                     prod_confirmed   = o.get("producer_confirmed")
                     merch_confirmed  = o.get("merchant_confirmed")
                     is_agreement     = bool(o.get("agreement_delivery_date"))
@@ -1161,7 +1414,6 @@ if role in ("merchant", "customer"):
                                 rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                                 st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                         with col_c:
-                            # ── AGREEMENT STATUS & ACCEPT (agreement orders only) ──
                             if is_agreement:
                                 if both_confirmed:
                                     st.success("🤝 Agreement Fully Signed")
@@ -1188,7 +1440,6 @@ if role in ("merchant", "customer"):
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
 
-                                # Agreement PDF button (agreement orders only)
                                 if st.button("📄 View Agreement PDF", key=f"view_agr_pdf_{o['id']}", use_container_width=True):
                                     try:
                                         prod_profile_res = supabase.table("profiles").select("*").eq("id", prod.get("producer_id", "")).execute()
@@ -1230,7 +1481,6 @@ if role in ("merchant", "customer"):
                                     st.session_state.agreement_preview_ref = str(o["id"])
                                     st.rerun()
 
-                            # ── CANCEL (regular orders: pending only; agreement: not allowed here) ──
                             if is_regular_order and o["status"] == "pending":
                                 if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
                                     try:
@@ -1242,9 +1492,6 @@ if role in ("merchant", "customer"):
                                     except Exception as e:
                                         st.error(f"Cancel failed: {e}")
 
-                        # ── UPDATE ORDER expander ──
-                        # Always shown for regular orders that are not terminal.
-                        # For agreement orders: shown only after both parties confirmed.
                         can_update = o["status"] not in ("cancelled", "delivered") and (
                             is_regular_order or both_confirmed
                         )
@@ -1288,7 +1535,6 @@ if role in ("merchant", "customer"):
                                     except Exception as e:
                                         st.error(f"Update failed: {e}")
 
-        # ── AGREEMENT PDF PREVIEW POPUP ──
         if st.session_state.get("agreement_preview_pdf"):
             st.divider()
             st.subheader("📄 Agreement Document")
@@ -1434,6 +1680,7 @@ if role == "merchant":
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Order failed: {e}")
+
 
 # ════════════════════════════════════════════════════════════
 # TAB: PROFILE (Producer & Customer only)
