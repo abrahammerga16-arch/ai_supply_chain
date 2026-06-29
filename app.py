@@ -1,6 +1,12 @@
 """
 AI-Powered Supply Chain System — Stage 5: Demand Forecasting
 Wolaita Sodo University | Department of ECE
+
+REQUIRED Supabase SQL (run once in SQL Editor):
+  ALTER TABLE orders ADD COLUMN IF NOT EXISTS producer_confirmed boolean;
+  ALTER TABLE orders ADD COLUMN IF NOT EXISTS merchant_confirmed boolean;
+  ALTER TABLE orders ADD COLUMN IF NOT EXISTS agreement_delivery_date text;
+  ALTER TABLE orders ADD COLUMN IF NOT EXISTS agreement_payment_method text;
 """
 import io
 import base64
@@ -1035,7 +1041,7 @@ if role in ("merchant", "customer"):
 
         try:
             orders = supabase.table("orders") \
-                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, profiles(full_name, phone, region))") \
+                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, producer_id, profiles(full_name, phone, region))") \
                 .eq("buyer_id", st.session_state.user.id) \
                 .order("created_at", desc=True).execute().data
         except Exception as e:
@@ -1104,12 +1110,13 @@ if role in ("merchant", "customer"):
                         "cancelled": "🔴 Cancelled",
                     }.get(o["status"], o["status"])
 
-                    # ── Agreement flags: True/False for agreement orders, None for regular orders ──
-                    prod_confirmed  = o.get("producer_confirmed")   # None = regular order
-                    merch_confirmed = o.get("merchant_confirmed")   # None = regular order
-                    is_agreement    = prod_confirmed is not None    # True only for producer-initiated agreements
-                    both_confirmed  = bool(prod_confirmed) and bool(merch_confirmed)
-                    # For regular orders: cancel/update are always allowed while pending/confirmed
+                    # ── Agreement detection ──
+                    # Use agreement_delivery_date as the reliable signal — regular orders never have it.
+                    # producer_confirmed/merchant_confirmed may not exist in older DB schemas.
+                    prod_confirmed   = o.get("producer_confirmed")
+                    merch_confirmed  = o.get("merchant_confirmed")
+                    is_agreement     = bool(o.get("agreement_delivery_date"))
+                    both_confirmed   = bool(prod_confirmed) and bool(merch_confirmed)
                     is_regular_order = not is_agreement
 
                     with st.container(border=True):
@@ -1210,14 +1217,15 @@ if role in ("merchant", "customer"):
                                     except Exception as e:
                                         st.error(f"Cancel failed: {e}")
 
-                        # ── UPDATE ORDER expander — shown for every non-terminal regular order ──
-                        # Agreement orders that are fully signed can also update status (e.g. mark delivered)
-                        can_update = (
-                            o["status"] not in ("cancelled", "delivered")
-                            and (is_regular_order or both_confirmed)
+                        # ── UPDATE ORDER expander ──
+                        # Always shown for regular orders that are not terminal.
+                        # For agreement orders: shown only after both parties confirmed.
+                        can_update = o["status"] not in ("cancelled", "delivered") and (
+                            is_regular_order or both_confirmed
                         )
+                        expander_label = "✏️ Update Order" if is_regular_order else "✏️ Update Agreement Order"
                         if can_update:
-                            with st.expander(f"✏️ Update Order"):
+                            with st.expander(expander_label):
                                 upd_col1, upd_col2 = st.columns(2)
                                 with upd_col1:
                                     new_qty = st.number_input(
