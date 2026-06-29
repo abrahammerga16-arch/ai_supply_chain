@@ -311,7 +311,21 @@ def get_profile(user_id):
     res = supabase.table("profiles").select("*").eq("id", user_id).execute()
     return res.data[0] if res.data else None
 
+import re as _re
+
+def _sanitize_email(email: str) -> str:
+    email = email.strip()
+    email = _re.sub(r"^mailto:", "", email, flags=_re.IGNORECASE)
+    email = _re.sub(r"[^ -~]", "", email)
+    return email.strip()
+
+def _valid_email(email: str) -> bool:
+    return bool(_re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email))
+
 def sign_up(email, password, full_name, role, region, phone):
+    email = _sanitize_email(email)
+    if not _valid_email(email):
+        return False, f"Invalid email address: '{email}'. Please check and try again."
     if len(password) < 8:
         return False, "Password must be at least 8 characters long."
     if not any(c.isdigit() for c in password):
@@ -333,6 +347,7 @@ def sign_up(email, password, full_name, role, region, phone):
         return False, f"Sign up failed: {str(e)}"
 
 def sign_in(email, password):
+    email = _sanitize_email(email)
     try:
         auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
         if auth_res.user:
