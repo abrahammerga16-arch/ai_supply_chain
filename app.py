@@ -1164,11 +1164,42 @@ if role == "producer":
                                         use_container_width=True
                                     ):
                                         try:
+                                            # 1. Confirm the order
                                             supabase.table("orders").update({
                                                 "status": "confirmed",
                                                 "producer_confirmed": True,
                                             }).eq("id", o["id"]).execute()
-                                            st.success(f"Order confirmed for {buyer_name}!")
+
+                                            # 2. Reduce product quantity
+                                            prod_id  = o.get("product_id") or (prod.get("id") if prod else None)
+                                            qty_ordered = float(o["quantity_ordered"])
+                                            if prod_id:
+                                                prod_row = supabase.table("products").select("quantity").eq("id", prod_id).execute()
+                                                if prod_row.data:
+                                                    current_qty = float(prod_row.data[0]["quantity"])
+                                                    new_qty     = max(0.0, current_qty - qty_ordered)
+                                                    supabase.table("products").update({
+                                                        "quantity":     new_qty,
+                                                        "is_available": new_qty > 0,
+                                                    }).eq("id", prod_id).execute()
+                                                    qty_msg = (
+                                                        f"Stock: {current_qty:,.1f} → {new_qty:,.1f} {unit}"
+                                                        + (" · **Sold out**" if new_qty == 0 else "")
+                                                    )
+                                                else:
+                                                    qty_msg = "Stock not updated (product not found)"
+                                            else:
+                                                qty_msg = "Stock not updated (no product ID)"
+
+                                            # 3. Show immediate result — no rerun yet so user sees it
+                                            st.success(
+                                                f"✅ **Order Confirmed!**\n\n"
+                                                f"👤 Buyer: **{buyer_name}**\n\n"
+                                                f"📦 Product: **{pname}**\n\n"
+                                                f"🔢 Qty ordered: **{qty_ordered:,.1f} {unit}**\n\n"
+                                                f"💰 Value: **{o['total_price_birr']:,.0f} Birr**\n\n"
+                                                f"📉 {qty_msg}"
+                                            )
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
@@ -1182,7 +1213,12 @@ if role == "producer":
                                             supabase.table("orders").update({
                                                 "status": "cancelled",
                                             }).eq("id", o["id"]).execute()
-                                            st.warning("Order cancelled.")
+                                            st.warning(
+                                                f"🚫 **Order Cancelled**\n\n"
+                                                f"👤 Buyer: **{buyer_name}** · "
+                                                f"📦 **{pname}** · "
+                                                f"💰 {o['total_price_birr']:,.0f} Birr"
+                                            )
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
@@ -1197,7 +1233,13 @@ if role == "producer":
                                             supabase.table("orders").update({
                                                 "status": "delivered",
                                             }).eq("id", o["id"]).execute()
-                                            st.success("Marked as delivered!")
+                                            st.success(
+                                                f"🚚 **Delivered!**\n\n"
+                                                f"👤 Buyer: **{buyer_name}**\n\n"
+                                                f"📦 Product: **{pname}** — "
+                                                f"{o['quantity_ordered']:,.1f} {unit}\n\n"
+                                                f"💰 **{o['total_price_birr']:,.0f} Birr** received"
+                                            )
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
