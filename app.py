@@ -1104,11 +1104,13 @@ if role in ("merchant", "customer"):
                         "cancelled": "🔴 Cancelled",
                     }.get(o["status"], o["status"])
 
-                    # Agreement status
-                    prod_confirmed = o.get("producer_confirmed", False)
-                    merch_confirmed = o.get("merchant_confirmed", False)
-                    is_agreement = prod_confirmed is not None  # has agreement fields
-                    both_confirmed = prod_confirmed and merch_confirmed
+                    # ── Agreement flags: True/False for agreement orders, None for regular orders ──
+                    prod_confirmed  = o.get("producer_confirmed")   # None = regular order
+                    merch_confirmed = o.get("merchant_confirmed")   # None = regular order
+                    is_agreement    = prod_confirmed is not None    # True only for producer-initiated agreements
+                    both_confirmed  = bool(prod_confirmed) and bool(merch_confirmed)
+                    # For regular orders: cancel/update are always allowed while pending/confirmed
+                    is_regular_order = not is_agreement
 
                     with st.container(border=True):
                         col_a, col_b, col_c = st.columns([3, 2, 2])
@@ -1127,8 +1129,8 @@ if role in ("merchant", "customer"):
                                 rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                                 st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                         with col_c:
-                            # ── AGREEMENT STATUS & ACCEPT ──
-                            if prod_confirmed is not None:
+                            # ── AGREEMENT STATUS & ACCEPT (agreement orders only) ──
+                            if is_agreement:
                                 if both_confirmed:
                                     st.success("🤝 Agreement Fully Signed")
                                 elif prod_confirmed and not merch_confirmed:
@@ -1139,7 +1141,7 @@ if role in ("merchant", "customer"):
                                                 "merchant_confirmed": True,
                                                 "status": "confirmed",
                                             }).eq("id", o["id"]).execute()
-                                            st.success("✅ You accepted the agreement!")
+                                            st.success("✅ Agreement accepted!")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
@@ -1154,20 +1156,16 @@ if role in ("merchant", "customer"):
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
 
-                            # ── VIEW AGREEMENT PDF ──
-                            if prod_confirmed is not None:
+                                # Agreement PDF button (agreement orders only)
                                 if st.button("📄 View Agreement PDF", key=f"view_agr_pdf_{o['id']}", use_container_width=True):
-                                    # Get producer info
                                     try:
                                         prod_profile_res = supabase.table("profiles").select("*").eq("id", prod.get("producer_id", "")).execute()
                                         prod_profile = prod_profile_res.data[0] if prod_profile_res.data else {}
                                     except Exception:
                                         prod_profile = {}
-
-                                    # Parse delivery date and payment from notes
-                                    notes_text = o.get("notes", "")
+                                    notes_text   = o.get("notes", "")
                                     delivery_str = datetime.date.today()
-                                    payment_str = "Bank Transfer"
+                                    payment_str  = "Bank Transfer"
                                     if o.get("agreement_delivery_date"):
                                         try:
                                             delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
@@ -1175,25 +1173,24 @@ if role in ("merchant", "customer"):
                                             pass
                                     if o.get("agreement_payment_method"):
                                         payment_str = o["agreement_payment_method"]
-
                                     pdf_bytes = generate_agreement_pdf(
-                                        producer_name    = prod_profile.get("full_name", "Producer"),
-                                        producer_phone   = prod_profile.get("phone", ""),
-                                        producer_region  = prod_profile.get("region", ""),
-                                        merchant_name    = profile.get("full_name", ""),
-                                        merchant_phone   = profile.get("phone", ""),
-                                        merchant_region  = profile.get("region", ""),
-                                        product_name     = pname,
-                                        sector           = prod.get("sector", ""),
-                                        quality_grade    = prod.get("quality_grade", ""),
-                                        quantity         = o["quantity_ordered"],
-                                        unit             = unit,
-                                        price_per_unit   = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
-                                        total_price      = o["total_price_birr"],
-                                        delivery_date    = delivery_str,
-                                        payment_method   = payment_str,
-                                        notes            = notes_text,
-                                        agreement_id     = str(o["id"]),
+                                        producer_name      = prod_profile.get("full_name", "Producer"),
+                                        producer_phone     = prod_profile.get("phone", ""),
+                                        producer_region    = prod_profile.get("region", ""),
+                                        merchant_name      = profile.get("full_name", ""),
+                                        merchant_phone     = profile.get("phone", ""),
+                                        merchant_region    = profile.get("region", ""),
+                                        product_name       = pname,
+                                        sector             = prod.get("sector", ""),
+                                        quality_grade      = prod.get("quality_grade", ""),
+                                        quantity           = o["quantity_ordered"],
+                                        unit               = unit,
+                                        price_per_unit     = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
+                                        total_price        = o["total_price_birr"],
+                                        delivery_date      = delivery_str,
+                                        payment_method     = payment_str,
+                                        notes              = notes_text,
+                                        agreement_id       = str(o["id"]),
                                         producer_confirmed = bool(prod_confirmed),
                                         merchant_confirmed = bool(merch_confirmed),
                                     )
@@ -1201,8 +1198,8 @@ if role in ("merchant", "customer"):
                                     st.session_state.agreement_preview_ref = str(o["id"])
                                     st.rerun()
 
-                            # ── CANCEL ORDER ──
-                            if o["status"] == "pending" and not prod_confirmed:
+                            # ── CANCEL (regular orders: pending only; agreement: not allowed here) ──
+                            if is_regular_order and o["status"] == "pending":
                                 if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
                                     try:
                                         supabase.table("orders").update(
@@ -1213,31 +1210,38 @@ if role in ("merchant", "customer"):
                                     except Exception as e:
                                         st.error(f"Cancel failed: {e}")
 
-                        # ── UPDATE ORDER (expand) ──
-                        if o["status"] not in ("cancelled", "delivered") and not prod_confirmed:
-                            with st.expander("✏️ Update Order"):
-                                new_qty = st.number_input(
-                                    "New Quantity",
-                                    min_value=0.1,
-                                    value=float(o["quantity_ordered"]),
-                                    step=1.0,
-                                    key=f"upd_qty_{o['id']}"
-                                )
-                                new_notes = st.text_area(
-                                    "Notes",
-                                    value=o.get("notes") or "",
-                                    key=f"upd_notes_{o['id']}"
-                                )
-                                new_status = st.selectbox(
-                                    "Update Status",
-                                    ["pending", "confirmed", "delivered", "cancelled"],
-                                    index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
-                                    key=f"upd_status_{o['id']}"
-                                )
-                                unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
-                                new_total  = new_qty * unit_price
-                                st.caption(f"New Total: **{new_total:,.0f} Birr**")
-
+                        # ── UPDATE ORDER expander — shown for every non-terminal regular order ──
+                        # Agreement orders that are fully signed can also update status (e.g. mark delivered)
+                        can_update = (
+                            o["status"] not in ("cancelled", "delivered")
+                            and (is_regular_order or both_confirmed)
+                        )
+                        if can_update:
+                            with st.expander(f"✏️ Update Order"):
+                                upd_col1, upd_col2 = st.columns(2)
+                                with upd_col1:
+                                    new_qty = st.number_input(
+                                        "New Quantity",
+                                        min_value=0.1,
+                                        value=float(o["quantity_ordered"]),
+                                        step=1.0,
+                                        key=f"upd_qty_{o['id']}"
+                                    )
+                                    new_status = st.selectbox(
+                                        "Status",
+                                        ["pending", "confirmed", "delivered", "cancelled"],
+                                        index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
+                                        key=f"upd_status_{o['id']}"
+                                    )
+                                with upd_col2:
+                                    unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
+                                    new_total  = new_qty * unit_price
+                                    st.metric("New Total", f"{new_total:,.0f} Birr")
+                                    new_notes = st.text_area(
+                                        "Notes",
+                                        value=o.get("notes") or "",
+                                        key=f"upd_notes_{o['id']}"
+                                    )
                                 if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
                                     try:
                                         supabase.table("orders").update({
