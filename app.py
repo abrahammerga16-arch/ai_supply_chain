@@ -2,35 +2,6 @@
 AI-Powered Supply Chain System — Stage 5: Demand Forecasting
 Wolaita Sodo University | Department of ECE
 
-REQUIRED Supabase SQL (run once in SQL Editor):
-  ALTER TABLE orders ADD COLUMN IF NOT EXISTS producer_confirmed boolean;
-  ALTER TABLE orders ADD COLUMN IF NOT EXISTS merchant_confirmed boolean;
-  ALTER TABLE orders ADD COLUMN IF NOT EXISTS agreement_delivery_date text;
-  ALTER TABLE orders ADD COLUMN IF NOT EXISTS agreement_payment_method text;
-
-  CREATE TABLE IF NOT EXISTS public.notifications (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      recipient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      message TEXT NOT NULL,
-      type TEXT DEFAULT 'info' CHECK (type IN ('info', 'success', 'warning', 'error')),
-      is_read BOOLEAN DEFAULT FALSE,
-      order_id UUID REFERENCES public.orders(id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-  );
-  CREATE INDEX IF NOT EXISTS idx_notifications_recipient
-      ON public.notifications(recipient_id, created_at DESC);
-  ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "recipient_select" ON public.notifications
-      FOR SELECT USING (recipient_id = auth.uid());
-  CREATE POLICY "recipient_update" ON public.notifications
-      FOR UPDATE USING (recipient_id = auth.uid());
-  CREATE POLICY "recipient_delete" ON public.notifications
-      FOR DELETE USING (recipient_id = auth.uid());
-  CREATE POLICY "authenticated_insert" ON public.notifications
-      FOR INSERT WITH CHECK (true);
-  GRANT ALL ON public.notifications TO authenticated;
-  GRANT ALL ON public.notifications TO service_role;
 """
 import io
 import base64
