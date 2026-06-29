@@ -1041,15 +1041,40 @@ if role in ("merchant", "customer"):
 
         try:
             orders = supabase.table("orders") \
-                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, producer_id, profiles(full_name, phone, region))") \
+                .select("*, products(product_name, unit, region, sector, price_birr, quality_grade, profiles(full_name, phone, region))") \
                 .eq("buyer_id", st.session_state.user.id) \
                 .order("created_at", desc=True).execute().data
+            if orders is None:
+                orders = []
         except Exception as e:
             st.error(f"Could not load orders: {e}")
             orders = []
 
         if not orders:
             st.info("You haven't placed any orders yet. Browse products to get started.")
+            # ── Debug: show raw count to detect RLS issues ──
+            with st.expander("🔍 Debug: Check if orders exist in DB"):
+                try:
+                    raw = supabase.table("orders").select("id, buyer_id, status, created_at") \
+                        .eq("buyer_id", st.session_state.user.id).execute()
+                    st.write(f"Raw query returned {len(raw.data)} row(s):", raw.data)
+                    if not raw.data:
+                        st.error(
+                            "No orders found for your user ID. Two possible causes:\n"
+                            "1. You haven't placed any orders yet.\n"
+                            "2. Supabase RLS is blocking the query. Run this SQL in Supabase SQL Editor:\n\n"
+                            "```sql\n"
+                            "ALTER TABLE orders ENABLE ROW LEVEL SECURITY;\n"
+                            "CREATE POLICY \"buyer_select\" ON orders FOR SELECT\n"
+                            "  USING (buyer_id = auth.uid());\n"
+                            "CREATE POLICY \"buyer_insert\" ON orders FOR INSERT\n"
+                            "  WITH CHECK (buyer_id = auth.uid());\n"
+                            "CREATE POLICY \"buyer_update\" ON orders FOR UPDATE\n"
+                            "  USING (buyer_id = auth.uid());\n"
+                            "```"
+                        )
+                except Exception as dbg_e:
+                    st.error(f"Debug query failed: {dbg_e}")
         else:
             total_spent = sum(o["total_price_birr"] for o in orders)
             pending     = sum(1 for o in orders if o["status"] == "pending")
