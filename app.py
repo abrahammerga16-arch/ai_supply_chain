@@ -23,45 +23,6 @@ from src.price_engine import recommend_price
 from src.fraud_engine import check_fraud_risk
 from src.demand_engine import forecast_demand
 
-import joblib
-import pandas as pd
-
-_model = joblib.load("models/fraud_model.joblib")
-
-def check_fraud_risk(sector, product, region, payment_method, quantity, agreed_price_birr, market_price_birr):
-    features = pd.DataFrame([{
-        "sector": sector, "product": product, "region": region,
-        "payment_method": payment_method, "quantity": quantity,
-        "agreed_price_birr": agreed_price_birr, "market_price_birr": market_price_birr,
-        # plus any engineered interaction features you trained with (e.g. price_diff_pct)
-    }])
-    prob = _model.predict_proba(features)[0][1]
-    level = "High" if prob > 0.7 else "Medium" if prob > 0.3 else "Low"
-    return {"risk_level": level, "is_fraud": int(prob > 0.5), "fraud_probability": float(prob)}
-_model = joblib.load("models/matching_model.joblib")
-
-def rank_merchants(listing, merchants):
-    rows = [{**listing, **m} for m in merchants]
-    df = pd.DataFrame(rows)
-    probs = _model.predict_proba(df)[:, 1]
-    for m, p in zip(merchants, probs):
-        m["match_probability"] = float(p)
-        m["is_match"] = int(p > 0.5)
-    return sorted(merchants, key=lambda x: x["match_probability"], reverse=True)
-
-
-from tensorflow import keras
-import joblib
-
-_model = keras.models.load_model("models/demand_model.keras")
-_meta = joblib.load("models/demand_meta.joblib")  # scaler, lookback window, etc.
-
-def forecast_demand(product_name, region, weeks_ahead=4):
-    # 1. pull last 12 weeks of historical sales for product+region from Supabase
-    # 2. scale using _meta["scaler"]
-    # 3. reshape to (1, 12, n_features) and call _model.predict()
-    # 4. inverse-transform, return historical + forecast + trend + r2/rmse
-    ...
 
 # ── PAGE CONFIG ──────────────────────────────────────────────
 st.set_page_config(
