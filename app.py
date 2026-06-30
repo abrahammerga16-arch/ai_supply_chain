@@ -922,13 +922,7 @@ if role == "producer":
                             send_notification(
                                 recipient_id = m["id"],
                                 title        = "🤝 New Agreement From Producer",
-                                message      = (
-                                    f"**{profile.get('full_name', 'A producer')}** has sent you a "
-                                    f"supply agreement for **{prod.get('product_name', 'a product')}** — "
-                                    f"{agr_qty:,.1f} {prod.get('unit', '')} @ {agr_price:,.0f} Birr/unit "
-                                    f"(Total: {agr_total:,.0f} Birr). "
-                                    f"Go to 🛒 My Orders to accept or reject."
-                                ),
+                                message      = f"**{profile.get('full_name', 'A producer')}** has sent you a " f"supply agreement for **{prod.get('product_name', 'a product')}** — " f"{agr_qty:,.1f} {prod.get('unit', '')} @ {agr_price:,.0f} Birr/unit " f"(Total: {agr_total:,.0f} Birr). " f"Go to 🛒 My Orders to accept or reject.",
                                 notif_type   = "info",
                                 order_id     = str(order_id),
                             )
@@ -1159,14 +1153,7 @@ if role == "producer":
                                                         send_notification(
                                                             recipient_id = r["id"],
                                                             title        = "📩 New Order Request From Producer",
-                                                            message      = (
-                                                                f"**{profile.get('full_name', 'A producer')}** wants to "
-                                                                f"sell you **{p['product_name']}** — "
-                                                                f"{req_qty:,.1f} {p['unit']} @ {p['price_birr']:,.0f} Birr/unit "
-                                                                f"(Total: {req_total:,.0f} Birr). "
-                                                                f"Go to 🛒 My Orders to confirm or decline. "
-                                                                f"No agreement is generated until you confirm."
-                                                            ),
+                                                            message      = f"**{profile.get('full_name', 'A producer')}** wants to " f"sell you **{p['product_name']}** — " f"{req_qty:,.1f} {p['unit']} @ {p['price_birr']:,.0f} Birr/unit " f"(Total: {req_total:,.0f} Birr). " f"Go to 🛒 My Orders to confirm or decline. " f"No agreement is generated until you confirm.",
                                                             notif_type   = "info",
                                                             order_id     = str(new_order_id) if new_order_id else None,
                                                         )
@@ -1382,13 +1369,7 @@ if role == "producer":
                                             send_notification(
                                                 recipient_id = o["buyer_id"],
                                                 title        = "✅ Order Confirmed",
-                                                message      = (
-                                                    f"Your order for **{pname}** "
-                                                    f"({qty_ordered:,.1f} {unit}) "
-                                                    f"worth **{o['total_price_birr']:,.0f} Birr** "
-                                                    f"has been confirmed by the producer. "
-                                                    f"Prepare for delivery."
-                                                ),
+                                                message      = f"Your order for **{pname}** " f"({qty_ordered:,.1f} {unit}) " f"worth **{o['total_price_birr']:,.0f} Birr** " f"has been confirmed by the producer. " f"Prepare for delivery.",
                                                 notif_type   = "success",
                                                 order_id     = o["id"],
                                             )
@@ -1396,12 +1377,7 @@ if role == "producer":
                                             send_notification(
                                                 recipient_id = st.session_state.user.id,
                                                 title        = "✅ You Confirmed an Order",
-                                                message      = (
-                                                    f"You confirmed **{buyer_name}**'s order for "
-                                                    f"**{pname}** — {qty_ordered:,.1f} {unit} · "
-                                                    f"{o['total_price_birr']:,.0f} Birr. "
-                                                    + (qty_msg or "")
-                                                ),
+                                                message      = f"You confirmed **{buyer_name}**'s order for " f"**{pname}** — {qty_ordered:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr. " + (qty_msg or ""),
                                                 notif_type   = "success",
                                                 order_id     = o["id"],
                                             )
@@ -1432,13 +1408,7 @@ if role == "producer":
                                             send_notification(
                                                 recipient_id = o["buyer_id"],
                                                 title        = "🚫 Order Cancelled",
-                                                message      = (
-                                                    f"Your order for **{pname}** "
-                                                    f"({o['quantity_ordered']:,.1f} {unit} · "
-                                                    f"{o['total_price_birr']:,.0f} Birr) "
-                                                    f"was cancelled by the producer. "
-                                                    f"Please browse for alternative products."
-                                                ),
+                                                message      = f"Your order for **{pname}** " f"({o['quantity_ordered']:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr) " f"was cancelled by the producer. " f"Please browse for alternative products.",
                                                 notif_type   = "warning",
                                                 order_id     = o["id"],
                                             )
@@ -1467,25 +1437,14 @@ if role == "producer":
                                             send_notification(
                                                 recipient_id = o["buyer_id"],
                                                 title        = "🚚 Order Delivered!",
-                                                message      = (
-                                                    f"Your order for **{pname}** "
-                                                    f"({o['quantity_ordered']:,.1f} {unit} · "
-                                                    f"{o['total_price_birr']:,.0f} Birr) "
-                                                    f"has been marked as delivered by the producer. "
-                                                    f"Please confirm receipt."
-                                                ),
+                                                message      = f"Your order for **{pname}** " f"({o['quantity_ordered']:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr) " f"has been marked as delivered by the producer. " f"Please confirm receipt.",
                                                 notif_type   = "success",
                                                 order_id     = o["id"],
                                             )
                                             send_notification(
                                                 recipient_id = st.session_state.user.id,
                                                 title        = "🚚 Delivery Recorded",
-                                                message      = (
-                                                    f"You marked **{pname}** "
-                                                    f"({o['quantity_ordered']:,.1f} {unit}) "
-                                                    f"as delivered to **{buyer_name}** — "
-                                                    f"{o['total_price_birr']:,.0f} Birr."
-                                                ),
+                                                message      = f"You marked **{pname}** " f"({o['quantity_ordered']:,.1f} {unit}) " f"as delivered to **{buyer_name}** — " f"{o['total_price_birr']:,.0f} Birr.",
                                                 notif_type   = "success",
                                                 order_id     = o["id"],
                                             )
@@ -1803,5 +1762,479 @@ if role in ("merchant", "customer"):
                                             send_notification(
                                                 recipient_id = prod_producer_id,
                                                 title        = "✅ Order Request Confirmed",
-                                                message      = (
-                                                    f"*
+                                                message      = f"**{profile.get('full_name','The merchant')}** confirmed your " f"order request for **{pname}** — {o['quantity_ordered']:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr. " f"You can now create the formal agreement in 📬 Incoming Orders.",
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
+                                        st.success("✅ Confirmed. The producer can now generate the agreement.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                                if st.button("❌ Decline", key=f"decline_req_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update({"status": "cancelled"}).eq("id", o["id"]).execute()
+                                        prod_producer_id = prod.get("producer_id")
+                                        if prod_producer_id:
+                                            send_notification(
+                                                recipient_id = prod_producer_id,
+                                                title        = "❌ Order Request Declined",
+                                                message      = f"**{profile.get('full_name','The merchant')}** declined your order request for **{pname}**.",
+                                                notif_type   = "warning",
+                                                order_id     = o["id"],
+                                            )
+                                        st.error("Declined.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                            elif is_agreement:
+                                if both_confirmed:
+                                    st.success("🤝 Agreement Fully Signed")
+                                elif prod_confirmed and not merch_confirmed:
+                                    st.warning("⏳ Awaiting Your Acceptance")
+                                    if st.button("✅ Accept Agreement", key=f"accept_agr_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "merchant_confirmed": True,
+                                                "status": "confirmed",
+                                            }).eq("id", o["id"]).execute()
+                                            # Notify producer that merchant accepted
+                                            prod_producer_id = prod.get("producer_id")
+                                            if prod_producer_id:
+                                                send_notification(
+                                                    recipient_id = prod_producer_id,
+                                                    title        = "🤝 Agreement Accepted!",
+                                                    message      = f"**{profile.get('full_name', 'The merchant')}** " f"has accepted your supply agreement for " f"**{pname}** — " f"{o['quantity_ordered']:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr. " f"The agreement is now fully executed.",
+                                                    notif_type   = "success",
+                                                    order_id     = o["id"],
+                                                )
+                                            st.success("✅ Agreement accepted!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+                                    if st.button("❌ Reject Agreement", key=f"reject_agr_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "merchant_confirmed": False,
+                                                "status": "cancelled",
+                                            }).eq("id", o["id"]).execute()
+                                            # Notify producer that merchant rejected
+                                            prod_producer_id = prod.get("producer_id")
+                                            if prod_producer_id:
+                                                send_notification(
+                                                    recipient_id = prod_producer_id,
+                                                    title        = "❌ Agreement Rejected",
+                                                    message      = f"**{profile.get('full_name', 'The merchant')}** " f"has rejected your supply agreement for " f"**{pname}**. " f"You may reach out to discuss revised terms.",
+                                                    notif_type   = "warning",
+                                                    order_id     = o["id"],
+                                                )
+                                            st.error("Agreement rejected.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                            elif is_regular_order and o["status"] == "pending":
+                                if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update(
+                                            {"status": "cancelled"}
+                                        ).eq("id", o["id"]).execute()
+                                        st.success("Order cancelled.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Cancel failed: {e}")
+
+                        # ── Inline, readable agreement terms + PDF download (for any agreement order) ──
+                        if is_agreement:
+                            try:
+                                prod_profile_res = supabase.table("profiles").select("*").eq("id", prod.get("producer_id", "")).execute()
+                                prod_profile = prod_profile_res.data[0] if prod_profile_res.data else {}
+                            except Exception:
+                                prod_profile = {}
+
+                            render_agreement_terms_inline(
+                                o, prod, prod_profile, profile, container_key=f"my_{o['id']}"
+                            )
+
+                            if st.button("📄 Download Agreement PDF", key=f"view_agr_pdf_{o['id']}", use_container_width=True):
+                                notes_text   = o.get("notes", "")
+                                delivery_str = datetime.date.today()
+                                payment_str  = "Bank Transfer"
+                                if o.get("agreement_delivery_date"):
+                                    try:
+                                        delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
+                                    except Exception:
+                                        pass
+                                if o.get("agreement_payment_method"):
+                                    payment_str = o["agreement_payment_method"]
+                                pdf_bytes = generate_agreement_pdf(
+                                    producer_name      = prod_profile.get("full_name", "Producer"),
+                                    producer_phone     = prod_profile.get("phone", ""),
+                                    producer_region    = prod_profile.get("region", ""),
+                                    merchant_name      = profile.get("full_name", ""),
+                                    merchant_phone     = profile.get("phone", ""),
+                                    merchant_region    = profile.get("region", ""),
+                                    product_name       = pname,
+                                    sector             = prod.get("sector", ""),
+                                    quality_grade      = prod.get("quality_grade", ""),
+                                    quantity           = o["quantity_ordered"],
+                                    unit               = unit,
+                                    price_per_unit     = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
+                                    total_price        = o["total_price_birr"],
+                                    delivery_date      = delivery_str,
+                                    payment_method     = payment_str,
+                                    notes              = notes_text,
+                                    agreement_id       = str(o["id"]),
+                                    producer_confirmed = prod_confirmed,
+                                    merchant_confirmed = merch_confirmed,
+                                )
+                                st.session_state.agreement_preview_pdf = pdf_bytes
+                                st.session_state.agreement_preview_ref = str(o["id"])
+                                st.rerun()
+
+                        can_update = o["status"] not in ("cancelled", "delivered") and (
+                            is_regular_order or both_confirmed
+                        )
+                        expander_label = "✏️ Update Order" if is_regular_order else "✏️ Update Agreement Order"
+                        if can_update:
+                            with st.expander(expander_label):
+                                upd_col1, upd_col2 = st.columns(2)
+                                with upd_col1:
+                                    new_qty = st.number_input(
+                                        "New Quantity",
+                                        min_value=0.1,
+                                        value=float(o["quantity_ordered"]),
+                                        step=1.0,
+                                        key=f"upd_qty_{o['id']}"
+                                    )
+                                    new_status = st.selectbox(
+                                        "Status",
+                                        ["pending", "confirmed", "delivered", "cancelled"],
+                                        index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
+                                        key=f"upd_status_{o['id']}"
+                                    )
+                                with upd_col2:
+                                    unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
+                                    new_total  = new_qty * unit_price
+                                    st.metric("New Total", f"{new_total:,.0f} Birr")
+                                    new_notes = st.text_area(
+                                        "Notes",
+                                        value=o.get("notes") or "",
+                                        key=f"upd_notes_{o['id']}"
+                                    )
+                                if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update({
+                                            "quantity_ordered": new_qty,
+                                            "total_price_birr": new_total,
+                                            "notes":            new_notes,
+                                            "status":           new_status,
+                                        }).eq("id", o["id"]).execute()
+                                        st.success("✅ Order updated!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Update failed: {e}")
+
+        if st.session_state.get("agreement_preview_pdf"):
+            st.divider()
+            st.subheader("📄 Agreement Document")
+            ref = st.session_state.get("agreement_preview_ref", "agreement")
+            st.markdown(
+                download_pdf_link(
+                    st.session_state.agreement_preview_pdf,
+                    f"Agreement-{ref[:8].upper()}.pdf",
+                    f"📥 Download Agreement PDF (Ref: {ref[:8].upper()})"
+                ),
+                unsafe_allow_html=True
+            )
+            if st.button("✖ Close Preview", key="close_preview_pdf"):
+                st.session_state.agreement_preview_pdf = None
+                st.session_state.agreement_preview_ref = None
+                st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: PLACE ORDER (Merchant only)
+# ════════════════════════════════════════════════════════════
+if role == "merchant":
+    with tab_place:
+        st.subheader("🛍️ Place Order")
+        st.caption(f"Logged in as **{profile['full_name']}** · {profile['region']}")
+        st.divider()
+
+        st.markdown("### 🏪 Buying Preferences")
+        st.caption("Set your preferences to power AI product matching in Best Matches tab")
+
+        pf_col1, pf_col2 = st.columns(2)
+        with pf_col1:
+            pref_sector   = st.selectbox("Preferred Sector", SECTORS,
+                index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
+                key="edit_pref_sector")
+            pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
+            pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
+                value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
+        with pf_col2:
+            pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
+                index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
+                key="edit_pref_quality")
+            pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
+            pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
+                index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
+                key="edit_pref_payment")
+
+        if st.button("💾 Save Preferences", use_container_width=True, key="prof_save_merchant"):
+            try:
+                supabase.table("profiles").update({
+                    "preferred_sector":  pref_sector,
+                    "preferred_product": pref_product,
+                    "max_budget_birr":   pref_budget,
+                    "preferred_quality": pref_quality,
+                    "needs_delivery":    pref_delivery,
+                    "payment_method":    pref_payment,
+                }).eq("id", st.session_state.user.id).execute()
+                st.success("✅ Preferences saved!")
+                st.session_state.profile = get_profile(st.session_state.user.id)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to save: {e}")
+
+        st.divider()
+
+        st.markdown("### 🛒 Place a New Order")
+        st.caption("Search and order any available product directly")
+
+        po_col1, po_col2, po_col3 = st.columns(3)
+        with po_col1:
+            po_sector = st.selectbox("Sector", ["All"] + SECTORS, key="po_sector")
+        with po_col2:
+            po_region = st.selectbox("Region", ["All"] + REGIONS, key="po_region")
+        with po_col3:
+            po_search = st.text_input("🔍 Search Product", key="po_search")
+
+        try:
+            po_query = supabase.table("products").select("*, profiles(full_name, phone, region)").eq("is_available", True)
+            if po_sector != "All":
+                po_query = po_query.eq("sector", po_sector)
+            if po_region != "All":
+                po_query = po_query.eq("region", po_region)
+            po_products = po_query.execute().data or []
+            if po_search:
+                po_products = [p for p in po_products if po_search.lower() in p["product_name"].lower()]
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            po_products = []
+
+        if not po_products:
+            st.info("No products found. Try adjusting your filters.")
+        else:
+            st.markdown(f"**{len(po_products)} product(s) available:**")
+            for p in po_products:
+                seller = p.get("profiles") or {}
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 2, 2])
+                    with c1:
+                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                        st.caption(p.get("description") or "No description")
+                        st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']} · 📞 {seller.get('phone', 'N/A')}")
+                    with c2:
+                        st.metric("Price / Unit", f"{p['price_birr']:,.0f} Birr")
+                        st.caption(f"Available: {p['quantity']} {p['unit']}")
+                    with c3:
+                        _max_qty = max(1.0, float(p["quantity"]))
+                        po_qty = st.number_input(
+                            "Quantity", min_value=1.0, max_value=_max_qty,
+                            value=min(1.0, _max_qty), step=1.0,
+                            key=f"po_qty_{p['id']}"
+                        )
+                        po_total = po_qty * p["price_birr"]
+                        st.caption(f"Total: **{po_total:,.0f} Birr**")
+
+                        risk = get_fraud_risk(
+                            sector=p["sector"], product=p["product_name"], region=p["region"],
+                            payment_method=pref_payment, quantity=po_qty, price_birr=p["price_birr"],
+                        )
+                        render_fraud_badge(risk)
+
+                        if st.button("🛒 Place Order", key=f"po_order_{p['id']}", use_container_width=True):
+                            if risk.get("risk_level") == "High":
+                                st.warning("⚠️ High fraud risk — proceed with caution.")
+                            try:
+                                supabase.table("orders").insert({
+                                    "product_id":        p["id"],
+                                    "buyer_id":          st.session_state.user.id,
+                                    "quantity_ordered":  po_qty,
+                                    "total_price_birr":  po_total,
+                                    "status":            "pending",
+                                    "fraud_risk_level":  risk.get("risk_level", "Unknown"),
+                                    "fraud_probability": risk.get("fraud_probability", 0.0),
+                                }).execute()
+                                st.success(f"✅ Order placed for **{p['product_name']}** — {po_total:,.0f} Birr! Check My Orders tab.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Order failed: {e}")
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: NOTIFICATIONS (All roles)
+# ════════════════════════════════════════════════════════════
+with tab_notif:
+    uid = st.session_state.user.id
+
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        st.subheader("🔔 Notifications")
+        st.caption("Order confirmations, deliveries, and updates appear here")
+    with hcol2:
+        if st.button("✅ Mark All Read", use_container_width=True, key="mark_all_read"):
+            try:
+                supabase.table("notifications") \
+                    .update({"is_read": True}) \
+                    .eq("recipient_id", uid) \
+                    .eq("is_read", False).execute()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+    try:
+        notifs = supabase.table("notifications") \
+            .select("*") \
+            .eq("recipient_id", uid) \
+            .order("created_at", desc=True) \
+            .limit(50).execute().data or []
+    except Exception as e:
+        st.error(f"Could not load notifications: {e}")
+        notifs = []
+
+    if not notifs:
+        st.info("No notifications yet. Notifications appear here when orders are confirmed, delivered, or cancelled.")
+    else:
+        unread_notifs = [n for n in notifs if not n.get("is_read")]
+        read_notifs   = [n for n in notifs if n.get("is_read")]
+
+        if unread_notifs:
+            st.markdown(f"### 🔴 Unread ({len(unread_notifs)})")
+            for n in unread_notifs:
+                _icon = {
+                    "success": "✅",
+                    "warning": "🚫",
+                    "error":   "❌",
+                    "info":    "ℹ️",
+                }.get(n.get("type", "info"), "🔔")
+
+                _bg = {
+                    "success": "#e8f8f5",
+                    "warning": "#fef9e7",
+                    "error":   "#fdedec",
+                    "info":    "#eaf2fb",
+                }.get(n.get("type", "info"), "#eaf2fb")
+
+                _border = {
+                    "success": "117a65",
+                    "warning": "f39c12",
+                    "error":   "e74c3c",
+                    "info":    "1a5276",
+                }.get(n.get("type", "info"), "1a5276")
+
+                created_str = ""
+                if n.get("created_at"):
+                    try:
+                        created_str = datetime.datetime.fromisoformat(
+                            n["created_at"].replace("Z", "+00:00")
+                        ).strftime("%d %b %Y, %H:%M")
+                    except Exception:
+                        pass
+
+                st.markdown(
+                    f"<div style='background:{_bg};border-radius:8px;"
+                    f"padding:14px 16px;margin-bottom:10px;"
+                    f"border-left:4px solid #{_border};'>"
+                    f"<b>{_icon} {n['title']}</b><br>"
+                    f"{n['message']}<br>"
+                    f"<small style='color:#888;'>{created_str}</small></div>",
+                    unsafe_allow_html=True
+                )
+                ncol1, ncol2 = st.columns([1, 5])
+                with ncol1:
+                    if st.button("✓ Read", key=f"read_{n['id']}", use_container_width=True):
+                        try:
+                            supabase.table("notifications").update(
+                                {"is_read": True}
+                            ).eq("id", n["id"]).execute()
+                            st.rerun()
+                        except Exception:
+                            pass
+
+        if read_notifs:
+            with st.expander(f"📂 Read notifications ({len(read_notifs)})", expanded=False):
+                for n in read_notifs:
+                    _icon = {
+                        "success": "✅",
+                        "warning": "🚫",
+                        "error":   "❌",
+                        "info":    "ℹ️",
+                    }.get(n.get("type", "info"), "🔔")
+                    created = ""
+                    if n.get("created_at"):
+                        try:
+                            created = datetime.datetime.fromisoformat(
+                                n["created_at"].replace("Z", "+00:00")
+                            ).strftime("%d %b %Y, %H:%M")
+                        except Exception:
+                            pass
+                    st.markdown(
+                        f"<div style='background:#f8f9fa;border-radius:6px;"
+                        f"padding:10px 14px;margin-bottom:6px;opacity:0.75;'>"
+                        f"<b>{_icon} {n['title']}</b><br>"
+                        f"<span style='color:#555;'>{n['message']}</span><br>"
+                        f"<small style='color:#aaa;'>{created}</small></div>",
+                        unsafe_allow_html=True
+                    )
+
+        if notifs:
+            st.divider()
+            if st.button("🗑️ Clear All Notifications", key="clear_all_notifs", use_container_width=False):
+                try:
+                    supabase.table("notifications") \
+                        .delete() \
+                        .eq("recipient_id", uid).execute()
+                    st.success("All notifications cleared.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+
+
+# ════════════════════════════════════════════════════════════
+# TAB: PROFILE (Producer & Customer only)
+# ════════════════════════════════════════════════════════════
+if role == "producer":
+    with tab_profile:
+        st.subheader("⚙️ My Profile")
+        st.caption(f"**{profile['full_name']}** · Producer · {profile['region']}")
+        st.divider()
+        st.markdown("### 📊 My Stats")
+        try:
+            my_products = supabase.table("products").select("*") \
+                .eq("producer_id", st.session_state.user.id).execute().data
+            active   = sum(1 for p in my_products if p["is_available"])
+            inactive = len(my_products) - active
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Listings", len(my_products))
+            c2.metric("Active", active)
+            c3.metric("Inactive", inactive)
+        except Exception as e:
+            st.error(f"Could not load stats: {e}")
+
+elif role == "customer":
+    with tab_profile:
+        st.subheader("⚙️ My Profile")
+        st.caption(f"**{profile['full_name']}** · Customer · {profile['region']}")
+        st.divider()
+        st.markdown("### 📊 My Stats")
+        try:
+            my_orders = supabase.table("orders").select("*") \
+                .eq("buyer_id", st.session_state.user.id).execute().data
+            total_spent = sum(o["total_price_birr"] for o in my_orders)
+            c1, c2 = st.columns(2)
+            c1.metric("Total Orders", len(my_orders))
+            c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
+        except Exception as e:
+            st.error(f"Could not load stats: {e}")
