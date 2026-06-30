@@ -2,13 +2,11 @@ streamlit==1.40.0
 supabase==2.7.4
 python-dotenv==1.0.1
 scikit-learn==1.5.2
-pandas
-numpy
+pandas==2.2.2
+numpy==1.26.4
 joblib
 matplotlib
 seaborn
 plotly
 reportlab
 tensorflow-cpu==2.16.1
-numpy==1.26.4
-pandas==X.Y.Z
