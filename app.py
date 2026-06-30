@@ -1903,55 +1903,6 @@ if role in ("merchant", "customer"):
                 st.session_state.agreement_preview_ref = None
                 st.rerun()
 
-# ════════════════════════════════════════════════════════════
-# TAB: MY ORDERS (Merchant side)
-# ════════════════════════════════════════════════════════════
-if role == "merchant":
-    with tab_orders:
-        st.subheader("🛒 My Orders & Agreements")
-        
-        try:
-            # Fetch orders where the merchant is the buyer
-            my_orders = supabase.table("orders") \
-                .select("*, products(*, profiles(*))") \
-                .eq("buyer_id", st.session_state.user.id) \
-                .execute().data
-        except Exception as e:
-            st.error(f"Error loading orders: {e}")
-            my_orders = []
-
-        if not my_orders:
-            st.info("You have no orders yet.")
-        else:
-            for order in my_orders:
-                prod = order.get("products") or {}
-                producer = prod.get("profiles") or {}
-                
-                with st.expander(f"Order #{order['id'][:8]} - {prod.get('product_name', 'Unknown')}", expanded=False):
-                    st.write(f"**Producer:** {producer.get('full_name', 'N/A')}")
-                    st.write(f"**Status:** {order['status'].capitalize()}")
-                    
-                    # Logic: If producer sent it but merchant hasn't confirmed
-                    if not order.get("merchant_confirmed") and order["status"] == "pending":
-                        st.warning("⚠️ Action Required: Please review and confirm the agreement.")
-                        
-                        if st.button("✅ Confirm & Finalize Agreement", key=f"confirm_order_{order['id']}"):
-                            try:
-                                supabase.table("orders").update({
-                                    "merchant_confirmed": True,
-                                    "status": "confirmed" # Transition to final status
-                                }).eq("id", order["id"]).execute()
-                                
-                                st.success("Agreement finalized!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Failed to confirm: {e}")
-                                
-                    elif order.get("merchant_confirmed"):
-                        st.success("✅ Agreement confirmed by you.")
-                    
-                    st.write(f"**Total Price:** {order['total_price_birr']:,.0f} Birr")
-
 
 # ════════════════════════════════════════════════════════════
 # TAB: PLACE ORDER (Merchant only)
