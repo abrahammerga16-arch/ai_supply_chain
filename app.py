@@ -2196,3 +2196,75 @@ elif role == "customer":
             c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
         except Exception as e:
             st.error(f"Could not load stats: {e}")
+import streamlit as st
+
+def show_merchant_confirmations(supabase, current_merchant_id):
+    st.subheader("Inbox: Pending Agreements & Matches")
+    
+    # 1. Fetch only agreements waiting for THIS merchant's confirmation
+    # (Ensure the status string matches exactly what the Producer sets in the database)
+    try:
+        response = (
+            supabase.table("agreements") # Replace with your actual table name (e.g., 'matches' or 'orders')
+            .select("*, producers(name, contact_info)") # Optional: join producer details if you have foreign keys setup
+            .eq("merchant_id", current_merchant_id)
+            .eq("status", "waiting_merchant_confirmation") 
+            .execute()
+        )
+        pending_agreements = response.data
+    except Exception as e:
+        st.error(f"Error fetching agreements: {e}")
+        return
+
+    # 2. Handle empty states
+    if not pending_agreements:
+        st.info("You have no new agreements to review at this time.")
+        return
+
+    # 3. Build the Preview and Action UI for each pending agreement
+    for agreement in pending_agreements:
+        # Create a visual card for each agreement using an expander
+        with st.expander(f"Review Agreement #{agreement['id']} - Producer ID: {agreement['producer_id']}", expanded=True):
+            
+            # --- PREVIEW SECTION ---
+            st.markdown("### Agreement Details")
+            
+            # Display relevant supply chain/trade details from your database columns
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write(f"**Product/Commodity:** {agreement.get('product_name', 'N/A')}")
+                st.write(f"**Quantity:** {agreement.get('quantity', 'N/A')}")
+            with col_b:
+                st.write(f"**Proposed Price:** {agreement.get('price', 'N/A')}")
+                st.write(f"**Delivery Date:** {agreement.get('delivery_date', 'N/A')}")
+            
+            st.markdown("**Terms & Conditions:**")
+            st.info(agreement.get('agreement_terms', 'Standard B2B terms apply.'))
+            
+            st.divider()
+
+            # --- ACTION SECTION ---
+            st.markdown("### Actions")
+            col1, col2, col3 = st.columns([1, 1, 2])
+            
+            with col1:
+                if st.button("✅ Confirm & Accept", key=f"accept_{agreement['id']}", use_container_width=True):
+                    # Update status to confirmed
+                    supabase.table("agreements").update(
+                        {"status": "confirmed_by_merchant"}
+                    ).eq("id", agreement['id']).execute()
+                    
+                    st.success("Agreement confirmed!")
+                    st.rerun() # Refresh app instantly so the card disappears
+            
+            with col2:
+                if st.button("❌ Reject", key=f"reject_{agreement['id']}", type="primary", use_container_width=True):
+                    # Update status to rejected
+                    supabase.table("agreements").update(
+                        {"status": "rejected_by_merchant"}
+                    ).eq("id", agreement['id']).execute()
+                    
+                    st.warning("Agreement rejected.")
+                    st.rerun()
+
+
