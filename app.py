@@ -1039,14 +1039,54 @@ if role == "producer":
                                                     f"📞 {r.get('phone') or 'N/A'}"
                                                 )
                                             with mcol2:
+                                                req_qty = st.number_input(
+                                                    "Qty", min_value=0.1,
+                                                    max_value=max(0.1, float(p["quantity"])),
+                                                    value=min(10.0, max(0.1, float(p["quantity"]))),
+                                                    step=1.0, key=f"reqqty_{p['id']}_{r['id']}"
+                                                )
                                                 if st.button(
-                                                    "🤝 Agreement",
+                                                    "📩 Send Order Request",
                                                     key=f"agr_{p['id']}_{r['id']}",
                                                     use_container_width=True
                                                 ):
-                                                    st.session_state.agreement_product_id = p["id"]
-                                                    st.session_state.agreement_merchant   = r
-                                                    st.rerun()
+                                                    try:
+                                                        req_total = req_qty * p["price_birr"]
+                                                        order_res = supabase.table("orders").insert({
+                                                            "product_id":         p["id"],
+                                                            "buyer_id":           r["id"],
+                                                            "quantity_ordered":   req_qty,
+                                                            "total_price_birr":   req_total,
+                                                            "status":             "pending",
+                                                            "fraud_risk_level":   "Low",
+                                                            "fraud_probability":  0.05,
+                                                            "producer_confirmed": True,
+                                                            "merchant_confirmed": False,
+                                                            "notes": (
+                                                                f"Producer-initiated order request for "
+                                                                f"{p['product_name']}. No agreement yet — "
+                                                                f"awaiting merchant confirmation."
+                                                            ),
+                                                        }).execute()
+                                                        new_order_id = order_res.data[0]["id"] if order_res.data else None
+                                                        send_notification(
+                                                            recipient_id = r["id"],
+                                                            title        = "📩 New Order Request From Producer",
+                                                            message      = (
+                                                                f"**{profile.get('full_name', 'A producer')}** wants to "
+                                                                f"sell you **{p['product_name']}** — "
+                                                                f"{req_qty:,.1f} {p['unit']} @ {p['price_birr']:,.0f} Birr/unit "
+                                                                f"(Total: {req_total:,.0f} Birr). "
+                                                                f"Go to 🛒 My Orders to confirm or decline. "
+                                                                f"No agreement is generated until you confirm."
+                                                            ),
+                                                            notif_type   = "info",
+                                                            order_id     = str(new_order_id) if new_order_id else None,
+                                                        )
+                                                        st.success(f"📩 Order request sent to {r['name']}. They must confirm before an agreement can be made.")
+                                                        st.rerun()
+                                                    except Exception as e:
+                                                        st.error(f"Failed: {e}")
                             except Exception as e:
                                 st.error(f"Matching failed: {e}")
 
@@ -1202,7 +1242,21 @@ if role == "producer":
                                         st.warning("⏳ Awaiting Your Action")
 
                             with col_c:
-                                if o["status"] == "pending" and not is_agreement:
+                                is_producer_request = bool(prod_confirmed) and not is_agreement
+                                ready_for_agreement = (
+                                    is_producer_request and bool(merch_confirmed)
+                                    and o["status"] == "confirmed"
+                                )
+
+                                if is_producer_request and not merch_confirmed:
+                                    st.info("⏳ Awaiting merchant confirmation")
+
+                                elif ready_for_agreement:
+                                    if st.button("📝 Create Agreement", key=f"mk_agr_{o['id']}", use_container_width=True):
+                                        st.session_state.agreement_pending_order_id = o["id"]
+                                        st.rerun()
+
+                                elif o["status"] == "pending" and not is_agreement and not is_producer_request:
                                     if st.button(
                                         "✅ Confirm Order",
                                         key=f"inc_confirm_{o['id']}",
@@ -1306,7 +1360,7 @@ if role == "producer":
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
 
-                                elif o["status"] == "confirmed":
+                                elif o["status"] == "confirmed" and not is_producer_request:
                                     if st.button(
                                         "🚚 Mark as Delivered",
                                         key=f"inc_deliver_{o['id']}",
@@ -1407,6 +1461,76 @@ if role == "producer":
                                         st.session_state.agreement_preview_pdf = pdf_bytes
                                         st.session_state.agreement_preview_ref = str(o["id"])
                                         st.rerun()
+
+            if st.session_state.get("agreement_pending_order_id"):
+                oid = st.session_state.agreement_pending_order_id
+                try:
+                    o_res = supabase.table("orders").select(
+                        "*, products(product_name, unit, sector, quality_grade, region, producer_id), profiles(full_name, phone, region)"
+                    ).eq("id", oid).execute()
+                    o = o_res.data[0] if o_res.data else None
+                except Exception:
+                    o = None
+
+                if o:
+                    prod = o.get("products") or {}
+                    buyer = o.get("profiles") or {}
+                    st.divider()
+                    st.markdown(f"### 📝 Build Agreement for confirmed order — {buyer.get('full_name','Merchant')}")
+                    with st.container(border=True):
+                        agr_delivery = st.date_input("Delivery Date", key=f"final_delivery_{oid}")
+                        agr_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"], key=f"final_payment_{oid}")
+                        agr_notes    = st.text_area("Additional Notes (optional)", key=f"final_notes_{oid}")
+
+                        if st.button("👁️ Preview Agreement PDF", key=f"final_preview_{oid}", use_container_width=True):
+                            preview_pdf = generate_agreement_pdf(
+                                producer_name=profile.get("full_name", ""), producer_phone=profile.get("phone", ""),
+                                producer_region=profile.get("region", ""), merchant_name=buyer.get("full_name", ""),
+                                merchant_phone=buyer.get("phone", ""), merchant_region=buyer.get("region", ""),
+                                product_name=prod.get("product_name", ""), sector=prod.get("sector", ""),
+                                quality_grade=prod.get("quality_grade", ""), quantity=o["quantity_ordered"],
+                                unit=prod.get("unit", ""), price_per_unit=o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
+                                total_price=o["total_price_birr"], delivery_date=agr_delivery, payment_method=agr_payment,
+                                notes=agr_notes, agreement_id="PREVIEW00", producer_confirmed=True, merchant_confirmed=True,
+                            )
+                            st.markdown(download_pdf_link(preview_pdf, "Agreement-PREVIEW.pdf", "📄 Download Preview PDF"), unsafe_allow_html=True)
+                            st.caption("⚠️ Preview only. Click Finalize below to save the official agreement.")
+
+                        col_fin, col_cancel = st.columns(2)
+                        with col_fin:
+                            if st.button("✅ Finalize Agreement", key=f"final_send_{oid}", use_container_width=True):
+                                try:
+                                    supabase.table("orders").update({
+                                        "agreement_delivery_date":  str(agr_delivery),
+                                        "agreement_payment_method": agr_payment,
+                                        "notes": agr_notes,
+                                    }).eq("id", oid).execute()
+                                    pdf_bytes = generate_agreement_pdf(
+                                        producer_name=profile.get("full_name", ""), producer_phone=profile.get("phone", ""),
+                                        producer_region=profile.get("region", ""), merchant_name=buyer.get("full_name", ""),
+                                        merchant_phone=buyer.get("phone", ""), merchant_region=buyer.get("region", ""),
+                                        product_name=prod.get("product_name", ""), sector=prod.get("sector", ""),
+                                        quality_grade=prod.get("quality_grade", ""), quantity=o["quantity_ordered"],
+                                        unit=prod.get("unit", ""), price_per_unit=o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
+                                        total_price=o["total_price_birr"], delivery_date=agr_delivery, payment_method=agr_payment,
+                                        notes=agr_notes, agreement_id=str(oid), producer_confirmed=True, merchant_confirmed=True,
+                                    )
+                                    send_notification(
+                                        recipient_id=o["buyer_id"], title="🤝 Agreement Document Ready",
+                                        message=f"The formal agreement for **{prod.get('product_name','')}** is ready. View it in 🛒 My Orders.",
+                                        notif_type="success", order_id=oid,
+                                    )
+                                    st.session_state.agreement_pdf = pdf_bytes
+                                    st.session_state.agreement_ref = str(oid)
+                                    st.session_state.agreement_merchant_name = buyer.get("full_name", "")
+                                    st.session_state.agreement_pending_order_id = None
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+                        with col_cancel:
+                            if st.button("✖ Cancel", key=f"final_cancel_{oid}", use_container_width=True):
+                                st.session_state.agreement_pending_order_id = None
+                                st.rerun()
 
             if st.session_state.get("agreement_preview_pdf"):
                 st.divider()
@@ -1546,6 +1670,9 @@ if role in ("merchant", "customer"):
                     is_agreement     = bool(o.get("agreement_delivery_date"))
                     both_confirmed   = bool(prod_confirmed) and bool(merch_confirmed)
                     is_regular_order = not is_agreement
+                    is_producer_request = (
+                        bool(prod_confirmed) and not bool(merch_confirmed) and not is_agreement
+                    )
 
                     with st.container(border=True):
                         col_a, col_b, col_c = st.columns([3, 2, 2])
@@ -1564,7 +1691,49 @@ if role in ("merchant", "customer"):
                                 rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                                 st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                         with col_c:
-                            if is_agreement:
+                            if is_producer_request and o["status"] == "pending":
+                                st.warning("📩 Order request from producer")
+                                if st.button("✅ Confirm Order", key=f"confirm_req_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update({
+                                            "merchant_confirmed": True,
+                                            "status": "confirmed",
+                                        }).eq("id", o["id"]).execute()
+                                        prod_producer_id = prod.get("producer_id")
+                                        if prod_producer_id:
+                                            send_notification(
+                                                recipient_id = prod_producer_id,
+                                                title        = "✅ Order Request Confirmed",
+                                                message      = (
+                                                    f"**{profile.get('full_name','The merchant')}** confirmed your "
+                                                    f"order request for **{pname}** — {o['quantity_ordered']:,.1f} {unit} · "
+                                                    f"{o['total_price_birr']:,.0f} Birr. "
+                                                    f"You can now create the formal agreement in 📬 Incoming Orders."
+                                                ),
+                                                notif_type   = "success",
+                                                order_id     = o["id"],
+                                            )
+                                        st.success("✅ Confirmed. The producer can now generate the agreement.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                                if st.button("❌ Decline", key=f"decline_req_{o['id']}", use_container_width=True):
+                                    try:
+                                        supabase.table("orders").update({"status": "cancelled"}).eq("id", o["id"]).execute()
+                                        prod_producer_id = prod.get("producer_id")
+                                        if prod_producer_id:
+                                            send_notification(
+                                                recipient_id = prod_producer_id,
+                                                title        = "❌ Order Request Declined",
+                                                message      = f"**{profile.get('full_name','The merchant')}** declined your order request for **{pname}**.",
+                                                notif_type   = "warning",
+                                                order_id     = o["id"],
+                                            )
+                                        st.error("Declined.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed: {e}")
+                            elif is_agreement:
                                 if both_confirmed:
                                     st.success("🤝 Agreement Fully Signed")
                                 elif prod_confirmed and not merch_confirmed:
@@ -1663,7 +1832,7 @@ if role in ("merchant", "customer"):
                                     st.session_state.agreement_preview_ref = str(o["id"])
                                     st.rerun()
 
-                            if is_regular_order and o["status"] == "pending":
+                            elif is_regular_order and o["status"] == "pending":
                                 if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
                                     try:
                                         supabase.table("orders").update(
