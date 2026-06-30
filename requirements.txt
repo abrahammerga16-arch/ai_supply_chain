@@ -10,3 +10,5 @@ seaborn
 plotly
 reportlab
 tensorflow-cpu==2.16.1
+numpy==1.26.4
+pandas==X.Y.Z
