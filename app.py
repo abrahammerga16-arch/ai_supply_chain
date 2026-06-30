@@ -32,11 +32,14 @@ st.set_page_config(
 )
 
 # ── SESSION STATE INIT ───────────────────────────────────────
-for key in ["user", "profile", "edit_product_id", "show_pref_form",
-            "agreement_product_id", "agreement_merchant",
-            "agreement_pdf", "agreement_ref", "agreement_merchant_name",
-            "agreement_pending_order_id", "agreement_preview_pdf",
-            "agreement_preview_ref"]:
+SESSION_KEYS = [
+    "user", "profile", "edit_product_id", "show_pref_form",
+    "agreement_product_id", "agreement_merchant",
+    "agreement_pdf", "agreement_ref", "agreement_merchant_name",
+    "agreement_pending_order_id", "agreement_preview_pdf",
+    "agreement_preview_ref",
+]
+for key in SESSION_KEYS:
     if key not in st.session_state:
         st.session_state[key] = None
 
@@ -45,6 +48,35 @@ try:
 except ValueError as e:
     st.error(str(e))
     st.stop()
+
+
+# ── AGREEMENT TERMS (shared by PDF + in-app preview) ──────────
+AGREEMENT_TERMS = [
+    ("Quality Assurance",
+     "The Producer guarantees that goods delivered shall conform to the agreed quality grade "
+     "as specified above. Any goods failing to meet this standard shall be rejected and replaced "
+     "at the Producer's cost within 7 business days."),
+    ("Payment Terms",
+     "Payment shall be made via the agreed payment method upon delivery and confirmation of goods. "
+     "Late payment beyond 14 days of delivery date shall attract a penalty of 2% per month "
+     "on the outstanding amount."),
+    ("Delivery & Transfer of Risk",
+     "The Producer shall deliver goods by the agreed delivery date. Risk and title transfer to the "
+     "Merchant upon successful delivery and written or verbal acceptance. Delivery delays "
+     "exceeding 7 days without notice shall entitle the Merchant to cancel this agreement."),
+    ("Dispute Resolution",
+     "Any disputes arising from this agreement shall first be resolved through good-faith "
+     "negotiation between the parties. Failing resolution within 30 days, disputes shall be "
+     "referred to the Ethiopian Commercial Dispute Resolution Centre or relevant regional "
+     "trade bureau."),
+    ("Force Majeure",
+     "Neither party shall be liable for delays or failures caused by circumstances beyond "
+     "their reasonable control including natural disasters, government restrictions, or "
+     "civil unrest, provided written notice is given within 5 days of such event."),
+    ("Governing Law",
+     "This agreement is governed by the Commercial Code of Ethiopia (Proclamation No. 1243/2021) "
+     "and applicable regional trade regulations."),
+]
 
 
 # ── PDF AGREEMENT GENERATOR ───────────────────────────────────
@@ -191,33 +223,7 @@ def generate_agreement_pdf(producer_name, producer_phone, producer_region,
         next_section = 3
 
     story.append(Paragraph(f"{next_section}. GENERAL TERMS AND CONDITIONS", section_style))
-    terms = [
-        ("Quality Assurance",
-         "The Producer guarantees that goods delivered shall conform to the agreed quality grade "
-         "as specified above. Any goods failing to meet this standard shall be rejected and replaced "
-         "at the Producer's cost within 7 business days."),
-        ("Payment Terms",
-         f"Payment shall be made via {payment_method} upon delivery and confirmation of goods. "
-         "Late payment beyond 14 days of delivery date shall attract a penalty of 2% per month "
-         "on the outstanding amount."),
-        ("Delivery & Transfer of Risk",
-         f"The Producer shall deliver goods by {delivery_date}. Risk and title transfer to the "
-         "Merchant upon successful delivery and written or verbal acceptance. Delivery delays "
-         "exceeding 7 days without notice shall entitle the Merchant to cancel this agreement."),
-        ("Dispute Resolution",
-         "Any disputes arising from this agreement shall first be resolved through good-faith "
-         "negotiation between the parties. Failing resolution within 30 days, disputes shall be "
-         "referred to the Ethiopian Commercial Dispute Resolution Centre or relevant regional "
-         "trade bureau."),
-        ("Force Majeure",
-         "Neither party shall be liable for delays or failures caused by circumstances beyond "
-         "their reasonable control including natural disasters, government restrictions, or "
-         "civil unrest, provided written notice is given within 5 days of such event."),
-        ("Governing Law",
-         "This agreement is governed by the Commercial Code of Ethiopia (Proclamation No. 1243/2021) "
-         "and applicable regional trade regulations."),
-    ]
-    for i, (heading, text) in enumerate(terms, 1):
+    for i, (heading, text) in enumerate(AGREEMENT_TERMS, 1):
         story.append(Paragraph(f"<b>{next_section}.{i}  {heading}</b>", body_style))
         story.append(Paragraph(text, small_style))
         story.append(Spacer(1, 4))
@@ -307,6 +313,50 @@ def generate_agreement_pdf(producer_name, producer_phone, producer_region,
     return buffer.getvalue()
 
 
+def render_agreement_terms_inline(order_row, product_row, producer_profile, merchant_profile,
+                                   container_key):
+    """
+    Renders a readable, in-app (non-PDF) view of an agreement's terms so either
+    party can review everything without needing to download a file.
+    """
+    qty   = order_row.get("quantity_ordered", 0) or 0
+    total = order_row.get("total_price_birr", 0) or 0
+    unit_price = (total / qty) if qty else 0
+    unit  = product_row.get("unit", "")
+    delivery = order_row.get("agreement_delivery_date") or "Not yet set"
+    payment  = order_row.get("agreement_payment_method") or "Not yet set"
+    notes    = order_row.get("notes") or ""
+
+    with st.expander("📋 Read Agreement Terms", expanded=False, key=f"terms_{container_key}"):
+        st.markdown("#### Parties")
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            st.markdown(f"**Producer (Seller):** {producer_profile.get('full_name', 'N/A')}")
+            st.caption(f"📍 {producer_profile.get('region', 'N/A')} · 📞 {producer_profile.get('phone') or 'N/A'}")
+        with pc2:
+            st.markdown(f"**Merchant (Buyer):** {merchant_profile.get('full_name', 'N/A')}")
+            st.caption(f"📍 {merchant_profile.get('region', 'N/A')} · 📞 {merchant_profile.get('phone') or 'N/A'}")
+
+        st.markdown("#### Goods & Terms")
+        st.markdown(
+            f"- **Product:** {product_row.get('product_name', 'N/A')} "
+            f"({product_row.get('sector', 'N/A')}, Grade {product_row.get('quality_grade', 'N/A')})\n"
+            f"- **Quantity:** {qty:,.1f} {unit}\n"
+            f"- **Price per Unit:** {unit_price:,.2f} Birr\n"
+            f"- **Total Contract Value:** {total:,.2f} Birr\n"
+            f"- **Payment Method:** {payment}\n"
+            f"- **Delivery Date:** {delivery}"
+        )
+        if notes.strip():
+            st.markdown("#### Additional Notes")
+            st.write(notes)
+
+        st.markdown("#### General Terms and Conditions")
+        for heading, text in AGREEMENT_TERMS:
+            st.markdown(f"**{heading}**")
+            st.caption(text)
+
+
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
 def get_profile(user_id):
     res = supabase.table("profiles").select("*").eq("id", user_id).execute()
@@ -349,6 +399,58 @@ def get_unread_count(user_id):
         return res.count or 0
     except Exception:
         return 0
+
+
+def get_fraud_risk(sector, product, region, payment_method, quantity, price_birr):
+    """Shared fraud-risk lookup used by Browse / Best Matches / Place Order tabs."""
+    try:
+        return check_fraud_risk(
+            sector=sector, product=product, region=region,
+            payment_method=payment_method, quantity=quantity,
+            agreed_price_birr=price_birr, market_price_birr=price_birr,
+        )
+    except Exception:
+        return {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
+
+
+def render_fraud_badge(risk):
+    badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk.get("risk_level"), "⚪")
+    st.caption(f"{badge} Fraud Risk: **{risk.get('risk_level', 'Unknown')}**")
+
+
+def classify_order(o):
+    """
+    Single source of truth for how an order should be interpreted, used by
+    both the producer's 'Incoming Orders' tab and the buyer's 'My Orders' tab.
+
+    Returns a dict with:
+      - is_agreement: a formal producer-drafted agreement (has delivery/payment terms)
+      - is_producer_request: a producer-initiated order request awaiting the
+        buyer's confirmation (not yet a formal agreement)
+      - is_regular_order: a normal buyer-initiated order (browse / place order)
+      - both_confirmed: both parties have signed off
+      - awaiting_buyer: True when the ball is in the buyer's (merchant/customer) court
+    """
+    prod_confirmed  = bool(o.get("producer_confirmed"))
+    merch_confirmed = bool(o.get("merchant_confirmed"))
+    is_agreement    = bool(o.get("agreement_delivery_date"))
+
+    # A producer-initiated request is any order the producer pre-confirmed
+    # that hasn't been accepted by the buyer yet, and isn't a fully drafted
+    # agreement. This stays true regardless of the order's "status" string so
+    # the buyer always sees something actionable until they respond.
+    is_producer_request = prod_confirmed and not merch_confirmed and not is_agreement
+    is_regular_order     = not is_agreement and not prod_confirmed
+
+    return {
+        "prod_confirmed": prod_confirmed,
+        "merch_confirmed": merch_confirmed,
+        "is_agreement": is_agreement,
+        "is_producer_request": is_producer_request,
+        "is_regular_order": is_regular_order,
+        "both_confirmed": prod_confirmed and merch_confirmed,
+        "awaiting_buyer": is_producer_request or (is_agreement and prod_confirmed and not merch_confirmed),
+    }
 
 import re as _re
 
@@ -399,11 +501,7 @@ def sign_in(email, password):
 
 def sign_out():
     supabase.auth.sign_out()
-    for key in ["user", "profile", "edit_product_id", "show_pref_form",
-                "agreement_product_id", "agreement_merchant",
-                "agreement_pdf", "agreement_ref", "agreement_merchant_name",
-                "agreement_pending_order_id", "agreement_preview_pdf",
-                "agreement_preview_ref"]:
+    for key in SESSION_KEYS:
         st.session_state[key] = None
 
 def download_pdf_link(pdf_bytes, filename, label="📄 Download Agreement PDF"):
@@ -551,17 +649,11 @@ with tab_browse:
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
 
-                        try:
-                            risk = check_fraud_risk(
-                                sector=p["sector"], product=p["product_name"],
-                                region=p["region"], payment_method="Bank Transfer",
-                                quantity=qty_to_order, agreed_price_birr=p["price_birr"],
-                                market_price_birr=p["price_birr"],
-                            )
-                            badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}[risk["risk_level"]]
-                            st.caption(f"{badge} Fraud Risk: **{risk['risk_level']}**")
-                        except Exception:
-                            risk = {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
+                        risk = get_fraud_risk(
+                            sector=p["sector"], product=p["product_name"], region=p["region"],
+                            payment_method="Bank Transfer", quantity=qty_to_order, price_birr=p["price_birr"],
+                        )
+                        render_fraud_badge(risk)
 
                         if st.button("🛒 Place Order", key=f"order_{p['id']}"):
                             if risk["risk_level"] == "High":
@@ -656,15 +748,10 @@ if role in ("merchant", "customer"):
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
                         if st.button("🛒 Order Now", key=f"match_order_{p['id']}"):
-                            try:
-                                risk = check_fraud_risk(
-                                    sector=p["sector"], product=p["product_name"],
-                                    region=p["region"], payment_method="Bank Transfer",
-                                    quantity=qty_to_order, agreed_price_birr=p["price_birr"],
-                                    market_price_birr=p["price_birr"],
-                                )
-                            except Exception:
-                                risk = {"risk_level": "Unknown", "is_fraud": 0, "fraud_probability": 0.0}
+                            risk = get_fraud_risk(
+                                sector=p["sector"], product=p["product_name"], region=p["region"],
+                                payment_method="Bank Transfer", quantity=qty_to_order, price_birr=p["price_birr"],
+                            )
                             try:
                                 supabase.table("orders").insert({
                                     "product_id":        p["id"],
@@ -1172,10 +1259,13 @@ if role == "producer":
                         buyer_name  = buyer.get("full_name", "Unknown buyer")
                         buyer_phone = buyer.get("phone", "N/A")
                         buyer_region= buyer.get("region", "N/A")
-                        is_agreement = bool(o.get("agreement_delivery_date"))
-                        prod_confirmed  = o.get("producer_confirmed")
-                        merch_confirmed = o.get("merchant_confirmed")
-                        both_confirmed  = bool(prod_confirmed) and bool(merch_confirmed)
+
+                        cls = classify_order(o)
+                        is_agreement     = cls["is_agreement"]
+                        prod_confirmed   = cls["prod_confirmed"]
+                        merch_confirmed  = cls["merch_confirmed"]
+                        both_confirmed   = cls["both_confirmed"]
+                        is_producer_request = cls["is_producer_request"]
 
                         status_badge = {
                             "pending":   "🟡 Pending",
@@ -1214,6 +1304,8 @@ if role == "producer":
                                         f"Delivery: {o.get('agreement_delivery_date','N/A')} · "
                                         f"Payment: {o.get('agreement_payment_method','N/A')}"
                                     )
+                                elif is_producer_request:
+                                    st.caption("📩 **Order request you sent** · awaiting merchant response")
                                 if o.get("notes"):
                                     st.caption(f"📝 {o['notes']}")
                                 risk_lvl = o.get("fraud_risk_level", "Unknown")
@@ -1240,23 +1332,24 @@ if role == "producer":
                                         st.warning("⏳ Awaiting Merchant")
                                     elif not prod_confirmed:
                                         st.warning("⏳ Awaiting Your Action")
+                                elif is_producer_request:
+                                    st.info("⏳ Awaiting merchant confirmation")
 
                             with col_c:
-                                is_producer_request = bool(prod_confirmed) and not is_agreement
                                 ready_for_agreement = (
-                                    is_producer_request and bool(merch_confirmed)
+                                    is_producer_request and merch_confirmed
                                     and o["status"] == "confirmed"
                                 )
 
                                 if is_producer_request and not merch_confirmed:
-                                    st.info("⏳ Awaiting merchant confirmation")
+                                    pass  # status already shown in col_b; nothing actionable yet
 
                                 elif ready_for_agreement:
                                     if st.button("📝 Create Agreement", key=f"mk_agr_{o['id']}", use_container_width=True):
                                         st.session_state.agreement_pending_order_id = o["id"]
                                         st.rerun()
 
-                                elif o["status"] == "pending" and not is_agreement and not is_producer_request:
+                                elif o["status"] == "pending" and cls["is_regular_order"]:
                                     if st.button(
                                         "✅ Confirm Order",
                                         key=f"inc_confirm_{o['id']}",
@@ -1360,7 +1453,7 @@ if role == "producer":
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
 
-                                elif o["status"] == "confirmed" and not is_producer_request:
+                                elif o["status"] == "confirmed" and cls["is_regular_order"]:
                                     if st.button(
                                         "🚚 Mark as Delivered",
                                         key=f"inc_deliver_{o['id']}",
@@ -1409,19 +1502,23 @@ if role == "producer":
                                             st.error(f"Failed: {e}")
 
                                 if is_agreement:
+                                    try:
+                                        buyer_profile_res = supabase.table("profiles") \
+                                            .select("*").eq("id", o["buyer_id"]).execute()
+                                        buyer_profile = buyer_profile_res.data[0] \
+                                            if buyer_profile_res.data else {}
+                                    except Exception:
+                                        buyer_profile = {}
+
+                                    render_agreement_terms_inline(
+                                        o, prod, profile, buyer_profile, container_key=f"inc_{o['id']}"
+                                    )
+
                                     if st.button(
-                                        "📄 View Agreement PDF",
+                                        "📄 Download Agreement PDF",
                                         key=f"inc_pdf_{o['id']}",
                                         use_container_width=True
                                     ):
-                                        try:
-                                            buyer_profile_res = supabase.table("profiles") \
-                                                .select("*").eq("id", o["buyer_id"]).execute()
-                                            buyer_profile = buyer_profile_res.data[0] \
-                                                if buyer_profile_res.data else {}
-                                        except Exception:
-                                            buyer_profile = {}
-
                                         delivery_str = datetime.date.today()
                                         payment_str  = "Bank Transfer"
                                         if o.get("agreement_delivery_date"):
@@ -1455,8 +1552,8 @@ if role == "producer":
                                             payment_method     = payment_str,
                                             notes              = o.get("notes", ""),
                                             agreement_id       = str(o["id"]),
-                                            producer_confirmed = bool(prod_confirmed),
-                                            merchant_confirmed = bool(merch_confirmed),
+                                            producer_confirmed = prod_confirmed,
+                                            merchant_confirmed = merch_confirmed,
                                         )
                                         st.session_state.agreement_preview_pdf = pdf_bytes
                                         st.session_state.agreement_preview_ref = str(o["id"])
@@ -1665,14 +1762,13 @@ if role in ("merchant", "customer"):
                         "cancelled": "🔴 Cancelled",
                     }.get(o["status"], o["status"])
 
-                    prod_confirmed   = o.get("producer_confirmed")
-                    merch_confirmed  = o.get("merchant_confirmed")
-                    is_agreement     = bool(o.get("agreement_delivery_date"))
-                    both_confirmed   = bool(prod_confirmed) and bool(merch_confirmed)
-                    is_regular_order = not is_agreement
-                    is_producer_request = (
-                        bool(prod_confirmed) and not bool(merch_confirmed) and not is_agreement
-                    )
+                    cls = classify_order(o)
+                    prod_confirmed   = cls["prod_confirmed"]
+                    merch_confirmed  = cls["merch_confirmed"]
+                    is_agreement     = cls["is_agreement"]
+                    both_confirmed   = cls["both_confirmed"]
+                    is_regular_order = cls["is_regular_order"]
+                    is_producer_request = cls["is_producer_request"]
 
                     with st.container(border=True):
                         col_a, col_b, col_c = st.columns([3, 2, 2])
@@ -1691,7 +1787,10 @@ if role in ("merchant", "customer"):
                                 rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
                                 st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                         with col_c:
-                            if is_producer_request and o["status"] == "pending":
+                            # Producer-initiated order request, awaiting this buyer's response.
+                            # Always shown regardless of the order's raw status string so the
+                            # confirm/decline action never silently disappears.
+                            if is_producer_request:
                                 st.warning("📩 Order request from producer")
                                 if st.button("✅ Confirm Order", key=f"confirm_req_{o['id']}", use_container_width=True):
                                     try:
@@ -1705,494 +1804,4 @@ if role in ("merchant", "customer"):
                                                 recipient_id = prod_producer_id,
                                                 title        = "✅ Order Request Confirmed",
                                                 message      = (
-                                                    f"**{profile.get('full_name','The merchant')}** confirmed your "
-                                                    f"order request for **{pname}** — {o['quantity_ordered']:,.1f} {unit} · "
-                                                    f"{o['total_price_birr']:,.0f} Birr. "
-                                                    f"You can now create the formal agreement in 📬 Incoming Orders."
-                                                ),
-                                                notif_type   = "success",
-                                                order_id     = o["id"],
-                                            )
-                                        st.success("✅ Confirmed. The producer can now generate the agreement.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Failed: {e}")
-                                if st.button("❌ Decline", key=f"decline_req_{o['id']}", use_container_width=True):
-                                    try:
-                                        supabase.table("orders").update({"status": "cancelled"}).eq("id", o["id"]).execute()
-                                        prod_producer_id = prod.get("producer_id")
-                                        if prod_producer_id:
-                                            send_notification(
-                                                recipient_id = prod_producer_id,
-                                                title        = "❌ Order Request Declined",
-                                                message      = f"**{profile.get('full_name','The merchant')}** declined your order request for **{pname}**.",
-                                                notif_type   = "warning",
-                                                order_id     = o["id"],
-                                            )
-                                        st.error("Declined.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Failed: {e}")
-                            elif is_agreement:
-                                if both_confirmed:
-                                    st.success("🤝 Agreement Fully Signed")
-                                elif prod_confirmed and not merch_confirmed:
-                                    st.warning("⏳ Awaiting Your Acceptance")
-                                    if st.button("✅ Accept Agreement", key=f"accept_agr_{o['id']}", use_container_width=True):
-                                        try:
-                                            supabase.table("orders").update({
-                                                "merchant_confirmed": True,
-                                                "status": "confirmed",
-                                            }).eq("id", o["id"]).execute()
-                                            # Notify producer that merchant accepted
-                                            prod_producer_id = prod.get("producer_id")
-                                            if prod_producer_id:
-                                                send_notification(
-                                                    recipient_id = prod_producer_id,
-                                                    title        = "🤝 Agreement Accepted!",
-                                                    message      = (
-                                                        f"**{profile.get('full_name', 'The merchant')}** "
-                                                        f"has accepted your supply agreement for "
-                                                        f"**{pname}** — "
-                                                        f"{o['quantity_ordered']:,.1f} {unit} · "
-                                                        f"{o['total_price_birr']:,.0f} Birr. "
-                                                        f"The agreement is now fully executed."
-                                                    ),
-                                                    notif_type   = "success",
-                                                    order_id     = o["id"],
-                                                )
-                                            st.success("✅ Agreement accepted!")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Failed: {e}")
-                                    if st.button("❌ Reject Agreement", key=f"reject_agr_{o['id']}", use_container_width=True):
-                                        try:
-                                            supabase.table("orders").update({
-                                                "merchant_confirmed": False,
-                                                "status": "cancelled",
-                                            }).eq("id", o["id"]).execute()
-                                            # Notify producer that merchant rejected
-                                            prod_producer_id = prod.get("producer_id")
-                                            if prod_producer_id:
-                                                send_notification(
-                                                    recipient_id = prod_producer_id,
-                                                    title        = "❌ Agreement Rejected",
-                                                    message      = (
-                                                        f"**{profile.get('full_name', 'The merchant')}** "
-                                                        f"has rejected your supply agreement for "
-                                                        f"**{pname}**. "
-                                                        f"You may reach out to discuss revised terms."
-                                                    ),
-                                                    notif_type   = "warning",
-                                                    order_id     = o["id"],
-                                                )
-                                            st.error("Agreement rejected.")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Failed: {e}")
-
-                                if st.button("📄 View Agreement PDF", key=f"view_agr_pdf_{o['id']}", use_container_width=True):
-                                    try:
-                                        prod_profile_res = supabase.table("profiles").select("*").eq("id", prod.get("producer_id", "")).execute()
-                                        prod_profile = prod_profile_res.data[0] if prod_profile_res.data else {}
-                                    except Exception:
-                                        prod_profile = {}
-                                    notes_text   = o.get("notes", "")
-                                    delivery_str = datetime.date.today()
-                                    payment_str  = "Bank Transfer"
-                                    if o.get("agreement_delivery_date"):
-                                        try:
-                                            delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
-                                        except Exception:
-                                            pass
-                                    if o.get("agreement_payment_method"):
-                                        payment_str = o["agreement_payment_method"]
-                                    pdf_bytes = generate_agreement_pdf(
-                                        producer_name      = prod_profile.get("full_name", "Producer"),
-                                        producer_phone     = prod_profile.get("phone", ""),
-                                        producer_region    = prod_profile.get("region", ""),
-                                        merchant_name      = profile.get("full_name", ""),
-                                        merchant_phone     = profile.get("phone", ""),
-                                        merchant_region    = profile.get("region", ""),
-                                        product_name       = pname,
-                                        sector             = prod.get("sector", ""),
-                                        quality_grade      = prod.get("quality_grade", ""),
-                                        quantity           = o["quantity_ordered"],
-                                        unit               = unit,
-                                        price_per_unit     = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0,
-                                        total_price        = o["total_price_birr"],
-                                        delivery_date      = delivery_str,
-                                        payment_method     = payment_str,
-                                        notes              = notes_text,
-                                        agreement_id       = str(o["id"]),
-                                        producer_confirmed = bool(prod_confirmed),
-                                        merchant_confirmed = bool(merch_confirmed),
-                                    )
-                                    st.session_state.agreement_preview_pdf = pdf_bytes
-                                    st.session_state.agreement_preview_ref = str(o["id"])
-                                    st.rerun()
-
-                            elif is_regular_order and o["status"] == "pending":
-                                if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
-                                    try:
-                                        supabase.table("orders").update(
-                                            {"status": "cancelled"}
-                                        ).eq("id", o["id"]).execute()
-                                        st.success("Order cancelled.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Cancel failed: {e}")
-
-                        can_update = o["status"] not in ("cancelled", "delivered") and (
-                            is_regular_order or both_confirmed
-                        )
-                        expander_label = "✏️ Update Order" if is_regular_order else "✏️ Update Agreement Order"
-                        if can_update:
-                            with st.expander(expander_label):
-                                upd_col1, upd_col2 = st.columns(2)
-                                with upd_col1:
-                                    new_qty = st.number_input(
-                                        "New Quantity",
-                                        min_value=0.1,
-                                        value=float(o["quantity_ordered"]),
-                                        step=1.0,
-                                        key=f"upd_qty_{o['id']}"
-                                    )
-                                    new_status = st.selectbox(
-                                        "Status",
-                                        ["pending", "confirmed", "delivered", "cancelled"],
-                                        index=["pending", "confirmed", "delivered", "cancelled"].index(o["status"]),
-                                        key=f"upd_status_{o['id']}"
-                                    )
-                                with upd_col2:
-                                    unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
-                                    new_total  = new_qty * unit_price
-                                    st.metric("New Total", f"{new_total:,.0f} Birr")
-                                    new_notes = st.text_area(
-                                        "Notes",
-                                        value=o.get("notes") or "",
-                                        key=f"upd_notes_{o['id']}"
-                                    )
-                                if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
-                                    try:
-                                        supabase.table("orders").update({
-                                            "quantity_ordered": new_qty,
-                                            "total_price_birr": new_total,
-                                            "notes":            new_notes,
-                                            "status":           new_status,
-                                        }).eq("id", o["id"]).execute()
-                                        st.success("✅ Order updated!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Update failed: {e}")
-
-        if st.session_state.get("agreement_preview_pdf"):
-            st.divider()
-            st.subheader("📄 Agreement Document")
-            ref = st.session_state.get("agreement_preview_ref", "agreement")
-            st.markdown(
-                download_pdf_link(
-                    st.session_state.agreement_preview_pdf,
-                    f"Agreement-{ref[:8].upper()}.pdf",
-                    f"📥 Download Agreement PDF (Ref: {ref[:8].upper()})"
-                ),
-                unsafe_allow_html=True
-            )
-            if st.button("✖ Close Preview", key="close_preview_pdf"):
-                st.session_state.agreement_preview_pdf = None
-                st.session_state.agreement_preview_ref = None
-                st.rerun()
-
-
-# ════════════════════════════════════════════════════════════
-# TAB: PLACE ORDER (Merchant only)
-# ════════════════════════════════════════════════════════════
-if role == "merchant":
-    with tab_place:
-        st.subheader("🛍️ Place Order")
-        st.caption(f"Logged in as **{profile['full_name']}** · {profile['region']}")
-        st.divider()
-
-        st.markdown("### 🏪 Buying Preferences")
-        st.caption("Set your preferences to power AI product matching in Best Matches tab")
-
-        pf_col1, pf_col2 = st.columns(2)
-        with pf_col1:
-            pref_sector   = st.selectbox("Preferred Sector", SECTORS,
-                index=SECTORS.index(profile.get("preferred_sector")) if profile.get("preferred_sector") in SECTORS else 0,
-                key="edit_pref_sector")
-            pref_product  = st.text_input("Preferred Product", value=profile.get("preferred_product") or "", key="edit_pref_product")
-            pref_budget   = st.number_input("Max Budget (Birr)", min_value=0.0, step=1000.0,
-                value=float(profile.get("max_budget_birr") or 0), key="edit_pref_budget")
-        with pf_col2:
-            pref_quality  = st.selectbox("Preferred Quality", ["A", "B", "A or B", "Any"],
-                index=["A", "B", "A or B", "Any"].index(profile.get("preferred_quality") or "Any"),
-                key="edit_pref_quality")
-            pref_delivery = st.checkbox("I need delivery", value=profile.get("needs_delivery") or False, key="edit_pref_delivery")
-            pref_payment  = st.selectbox("Payment Method", ["Cash", "Bank Transfer", "Mobile Money", "Credit"],
-                index=["Cash", "Bank Transfer", "Mobile Money", "Credit"].index(profile.get("payment_method") or "Cash"),
-                key="edit_pref_payment")
-
-        if st.button("💾 Save Preferences", use_container_width=True, key="prof_save_merchant"):
-            try:
-                supabase.table("profiles").update({
-                    "preferred_sector":  pref_sector,
-                    "preferred_product": pref_product,
-                    "max_budget_birr":   pref_budget,
-                    "preferred_quality": pref_quality,
-                    "needs_delivery":    pref_delivery,
-                    "payment_method":    pref_payment,
-                }).eq("id", st.session_state.user.id).execute()
-                st.success("✅ Preferences saved!")
-                st.session_state.profile = get_profile(st.session_state.user.id)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to save: {e}")
-
-        st.divider()
-
-        st.markdown("### 🛒 Place a New Order")
-        st.caption("Search and order any available product directly")
-
-        po_col1, po_col2, po_col3 = st.columns(3)
-        with po_col1:
-            po_sector = st.selectbox("Sector", ["All"] + SECTORS, key="po_sector")
-        with po_col2:
-            po_region = st.selectbox("Region", ["All"] + REGIONS, key="po_region")
-        with po_col3:
-            po_search = st.text_input("🔍 Search Product", key="po_search")
-
-        try:
-            po_query = supabase.table("products").select("*, profiles(full_name, phone, region)").eq("is_available", True)
-            if po_sector != "All":
-                po_query = po_query.eq("sector", po_sector)
-            if po_region != "All":
-                po_query = po_query.eq("region", po_region)
-            po_products = po_query.execute().data or []
-            if po_search:
-                po_products = [p for p in po_products if po_search.lower() in p["product_name"].lower()]
-        except Exception as e:
-            st.error(f"Could not load products: {e}")
-            po_products = []
-
-        if not po_products:
-            st.info("No products found. Try adjusting your filters.")
-        else:
-            st.markdown(f"**{len(po_products)} product(s) available:**")
-            for p in po_products:
-                seller = p.get("profiles") or {}
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 2])
-                    with c1:
-                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
-                        st.caption(p.get("description") or "No description")
-                        st.caption(f"👤 {seller.get('full_name', 'Unknown')} · 📍 {p['region']} · 📞 {seller.get('phone', 'N/A')}")
-                    with c2:
-                        st.metric("Price / Unit", f"{p['price_birr']:,.0f} Birr")
-                        st.caption(f"Available: {p['quantity']} {p['unit']}")
-                    with c3:
-                        _max_qty = max(1.0, float(p["quantity"]))
-                        po_qty = st.number_input(
-                            "Quantity", min_value=1.0, max_value=_max_qty,
-                            value=min(1.0, _max_qty), step=1.0,
-                            key=f"po_qty_{p['id']}"
-                        )
-                        po_total = po_qty * p["price_birr"]
-                        st.caption(f"Total: **{po_total:,.0f} Birr**")
-
-                        try:
-                            risk = check_fraud_risk(
-                                sector=p["sector"], product=p["product_name"],
-                                region=p["region"], payment_method=pref_payment,
-                                quantity=po_qty, agreed_price_birr=p["price_birr"],
-                                market_price_birr=p["price_birr"],
-                            )
-                            rb = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk["risk_level"], "⚪")
-                            st.caption(f"{rb} Fraud Risk: **{risk['risk_level']}**")
-                        except Exception:
-                            risk = {"risk_level": "Unknown", "fraud_probability": 0.0}
-
-                        if st.button("🛒 Place Order", key=f"po_order_{p['id']}", use_container_width=True):
-                            if risk.get("risk_level") == "High":
-                                st.warning("⚠️ High fraud risk — proceed with caution.")
-                            try:
-                                supabase.table("orders").insert({
-                                    "product_id":        p["id"],
-                                    "buyer_id":          st.session_state.user.id,
-                                    "quantity_ordered":  po_qty,
-                                    "total_price_birr":  po_total,
-                                    "status":            "pending",
-                                    "fraud_risk_level":  risk.get("risk_level", "Unknown"),
-                                    "fraud_probability": risk.get("fraud_probability", 0.0),
-                                }).execute()
-                                st.success(f"✅ Order placed for **{p['product_name']}** — {po_total:,.0f} Birr! Check My Orders tab.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Order failed: {e}")
-
-
-# ════════════════════════════════════════════════════════════
-# TAB: NOTIFICATIONS (All roles)
-# ════════════════════════════════════════════════════════════
-with tab_notif:
-    uid = st.session_state.user.id
-
-    hcol1, hcol2 = st.columns([3, 1])
-    with hcol1:
-        st.subheader("🔔 Notifications")
-        st.caption("Order confirmations, deliveries, and updates appear here")
-    with hcol2:
-        if st.button("✅ Mark All Read", use_container_width=True, key="mark_all_read"):
-            try:
-                supabase.table("notifications") \
-                    .update({"is_read": True}) \
-                    .eq("recipient_id", uid) \
-                    .eq("is_read", False).execute()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed: {e}")
-
-    try:
-        notifs = supabase.table("notifications") \
-            .select("*") \
-            .eq("recipient_id", uid) \
-            .order("created_at", desc=True) \
-            .limit(50).execute().data or []
-    except Exception as e:
-        st.error(f"Could not load notifications: {e}")
-        notifs = []
-
-    if not notifs:
-        st.info("No notifications yet. Notifications appear here when orders are confirmed, delivered, or cancelled.")
-    else:
-        unread_notifs = [n for n in notifs if not n.get("is_read")]
-        read_notifs   = [n for n in notifs if n.get("is_read")]
-
-        if unread_notifs:
-            st.markdown(f"### 🔴 Unread ({len(unread_notifs)})")
-            for n in unread_notifs:
-                _icon = {
-                    "success": "✅",
-                    "warning": "🚫",
-                    "error":   "❌",
-                    "info":    "ℹ️",
-                }.get(n.get("type", "info"), "🔔")
-
-                _bg = {
-                    "success": "#e8f8f5",
-                    "warning": "#fef9e7",
-                    "error":   "#fdedec",
-                    "info":    "#eaf2fb",
-                }.get(n.get("type", "info"), "#eaf2fb")
-
-                _border = {
-                    "success": "117a65",
-                    "warning": "f39c12",
-                    "error":   "e74c3c",
-                    "info":    "1a5276",
-                }.get(n.get("type", "info"), "1a5276")
-
-                created_str = ""
-                if n.get("created_at"):
-                    try:
-                        created_str = datetime.datetime.fromisoformat(
-                            n["created_at"].replace("Z", "+00:00")
-                        ).strftime("%d %b %Y, %H:%M")
-                    except Exception:
-                        pass
-
-                st.markdown(
-                    f"<div style='background:{_bg};border-radius:8px;"
-                    f"padding:14px 16px;margin-bottom:10px;"
-                    f"border-left:4px solid #{_border};'>"
-                    f"<b>{_icon} {n['title']}</b><br>"
-                    f"{n['message']}<br>"
-                    f"<small style='color:#888;'>{created_str}</small></div>",
-                    unsafe_allow_html=True
-                )
-                ncol1, ncol2 = st.columns([1, 5])
-                with ncol1:
-                    if st.button("✓ Read", key=f"read_{n['id']}", use_container_width=True):
-                        try:
-                            supabase.table("notifications").update(
-                                {"is_read": True}
-                            ).eq("id", n["id"]).execute()
-                            st.rerun()
-                        except Exception:
-                            pass
-
-        if read_notifs:
-            with st.expander(f"📂 Read notifications ({len(read_notifs)})", expanded=False):
-                for n in read_notifs:
-                    _icon = {
-                        "success": "✅",
-                        "warning": "🚫",
-                        "error":   "❌",
-                        "info":    "ℹ️",
-                    }.get(n.get("type", "info"), "🔔")
-                    created = ""
-                    if n.get("created_at"):
-                        try:
-                            created = datetime.datetime.fromisoformat(
-                                n["created_at"].replace("Z", "+00:00")
-                            ).strftime("%d %b %Y, %H:%M")
-                        except Exception:
-                            pass
-                    st.markdown(
-                        f"<div style='background:#f8f9fa;border-radius:6px;"
-                        f"padding:10px 14px;margin-bottom:6px;opacity:0.75;'>"
-                        f"<b>{_icon} {n['title']}</b><br>"
-                        f"<span style='color:#555;'>{n['message']}</span><br>"
-                        f"<small style='color:#aaa;'>{created}</small></div>",
-                        unsafe_allow_html=True
-                    )
-
-        if notifs:
-            st.divider()
-            if st.button("🗑️ Clear All Notifications", key="clear_all_notifs", use_container_width=False):
-                try:
-                    supabase.table("notifications") \
-                        .delete() \
-                        .eq("recipient_id", uid).execute()
-                    st.success("All notifications cleared.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
-
-
-# ════════════════════════════════════════════════════════════
-# TAB: PROFILE (Producer & Customer only)
-# ════════════════════════════════════════════════════════════
-if role == "producer":
-    with tab_profile:
-        st.subheader("⚙️ My Profile")
-        st.caption(f"**{profile['full_name']}** · Producer · {profile['region']}")
-        st.divider()
-        st.markdown("### 📊 My Stats")
-        try:
-            my_products = supabase.table("products").select("*") \
-                .eq("producer_id", st.session_state.user.id).execute().data
-            active   = sum(1 for p in my_products if p["is_available"])
-            inactive = len(my_products) - active
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Listings", len(my_products))
-            c2.metric("Active", active)
-            c3.metric("Inactive", inactive)
-        except Exception as e:
-            st.error(f"Could not load stats: {e}")
-
-elif role == "customer":
-    with tab_profile:
-        st.subheader("⚙️ My Profile")
-        st.caption(f"**{profile['full_name']}** · Customer · {profile['region']}")
-        st.divider()
-        st.markdown("### 📊 My Stats")
-        try:
-            my_orders = supabase.table("orders").select("*") \
-                .eq("buyer_id", st.session_state.user.id).execute().data
-            total_spent = sum(o["total_price_birr"] for o in my_orders)
-            c1, c2 = st.columns(2)
-            c1.metric("Total Orders", len(my_orders))
-            c2.metric("Total Spent", f"{total_spent:,.0f} Birr")
-        except Exception as e:
-            st.error(f"Could not load stats: {e}")
+                                                    f"*
