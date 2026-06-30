@@ -1803,7 +1803,6 @@ if role in ("merchant", "customer"):
                                                 send_notification(
                                                     recipient_id = prod_producer_id,
                                                     title        = "🤝 Agreement Accepted!",
-                                                    message      = f"**{profile.get('full_name', 'The merchant')}** " f"has accepted your supply agreement for " f"**{pname}** — " f"{o['quantity_ordered']:,.1f} {unit} · " f"{o['total_price_birr']:,.0f} Birr. " f"The agreement is now fully executed.",
                                                     notif_type   = "success",
                                                     order_id     = o["id"],
                                                 )
