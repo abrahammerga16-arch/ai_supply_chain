@@ -10,6 +10,8 @@ Admin credentials are stored in Supabase `profiles` table with role = 'admin'.
 To create the first admin, run in Supabase SQL Editor:
     UPDATE profiles SET role = 'admin' WHERE id = '<your-user-uuid>';
 """
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import datetime
 import streamlit as st
