@@ -585,6 +585,11 @@ role    = profile["role"] if profile else None
 _unread = get_unread_count(st.session_state.user.id) if st.session_state.user else 0
 _notif_label = f"🔔 Notifications ({_unread})" if _unread > 0 else "🔔 Notifications"
 
+if role == "admin":
+    st.warning("⚠️ You are logged in as Admin. Please use the Admin panel.")
+    st.page_link("pages/Admin.py", label="Go to Admin Dashboard", icon="🛡️")
+    st.stop()
+
 if role == "producer":
     tabs = st.tabs(["📦 Browse", "➕ Add Product", "📋 My Listings", "📬 Incoming Orders", _notif_label, "⚙️ Profile"])
     tab_browse, tab_add, tab_listings, tab_incoming, tab_notif, tab_profile = tabs
