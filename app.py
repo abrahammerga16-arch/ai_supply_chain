@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+
 import streamlit as st
 from src.auth import init_supabase, login_user, register_user
 
