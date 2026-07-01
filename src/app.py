@@ -1,6 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
+
 import streamlit as st
 from src.db import get_supabase_client
 from src.shared import sign_in, sign_up, get_profile, SESSION_KEYS, REGIONS
