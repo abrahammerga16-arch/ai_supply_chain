@@ -37,7 +37,8 @@ if st.session_state.get("user") and st.session_state.get("profile"):
     if role in role_map:
         st.switch_page(role_map[role])
     else:
-        st.error(f"Unknown role: '{role}'. Contact support.")
+        st.error(f"Unknown role: '{role}'. Contact admin.")
+
     st.stop()
 
 # ── Landing UI ────────────────────────────────────────────────
