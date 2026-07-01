@@ -1,14 +1,5 @@
-import sys
-import os
-
-# 1. Force Python to properly recognize the nested root folders for modules
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_root_dir = os.path.dirname(_current_dir)
-
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
-if _current_dir not in sys.path:
-    sys.path.insert(0, _current_dir)
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 
 import streamlit as st
 from src.db import get_supabase_client
@@ -35,37 +26,31 @@ for key in SESSION_KEYS:
         st.session_state[key] = None
 
 # ── Already logged in → redirect to role page ─────────────────
-# Safety Check: Only execute redirect if BOTH user and profile exist
-if st.session_state.get("user") is not None and st.session_state.get("profile") is not None:
-    role = str(st.session_state.profile.get("role", "")).lower().strip()
-    
-    # Explicitly map the paths relative to the execution root folder 'src/'
+if st.session_state.get("user") and st.session_state.get("profile"):
+    role = st.session_state.profile.get("role", "").lower()
     role_map = {
         "producer": "pages/1_Producer.py",
         "merchant": "pages/2_Merchant.py",
         "customer": "pages/3_Customer.py",
         "admin":    "pages/4_Admin.py",
     }
-    
     if role in role_map:
-        try:
-            st.switch_page(role_map[role])
-        except Exception:
-            try:
-                # Fallback pathing for the nested folder environment inside Render
-                st.switch_page(f"src/{role_map[role]}")
-            except Exception as e:
-                st.error(f"Could not load dashboard page: {e}.")
+        st.switch_page(role_map[role])
     else:
-        st.error(f"Unknown role: '{role}'. Contact admin.")
+        st.error(f"Unknown role: '{role}'. Contact support.")
+    st.stop()
 
-# ── Tabs Configuration (Visible when not logged in) ───────────
-tab_login, tab_register = st.tabs(["🔒 Login", "📝 Register"])
+# ── Landing UI ────────────────────────────────────────────────
+st.title("🌾 AI Supply Chain Platform")
+st.caption("Wolaita Sodo University · Department of ECE")
+st.divider()
+
+tab_login, tab_register = st.tabs(["Login", "Register"])
 
 # ── Login ─────────────────────────────────────────────────────
 with tab_login:
     st.subheader("Sign In")
-    email = st.text_input("Email", key="login_email")
+    email    = st.text_input("Email",    key="login_email")
     password = st.text_input("Password", type="password", key="login_password")
 
     if st.button("Login", use_container_width=True, type="primary"):
@@ -96,6 +81,7 @@ with tab_register:
             with st.spinner("Creating account…"):
                 ok, msg = sign_up(reg_email, reg_password, reg_name, reg_role, reg_region, reg_phone)
             if ok:
-                st.success("Registration successful! Please login.")
+                st.success(msg)
+                st.info("Please go to the Login tab to sign in.")
             else:
                 st.error(msg)
