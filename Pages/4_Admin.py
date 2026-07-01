@@ -3,6 +3,10 @@ Admin.py — Admin Dashboard
 Ethiopian AI Supply Chain | Wolaita Sodo University — ECE
 """
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 import datetime
 import streamlit as st
 import pandas as pd
