@@ -587,7 +587,7 @@ _notif_label = f"🔔 Notifications ({_unread})" if _unread > 0 else "🔔 Notif
 
 if role == "admin":
     st.warning("⚠️ You are logged in as Admin. Please use the Admin panel.")
-    st.page_link("pages/Admin.py", label="Go to Admin Dashboard", icon="🛡️")
+    st.info("👉 Use the sidebar to navigate to the **Admin** page, or go to your app URL **/Admin**")
     st.stop()
 
 if role == "producer":
