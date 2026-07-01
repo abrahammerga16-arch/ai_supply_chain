@@ -1,7 +1,7 @@
 import sys
 import os
 
-# 1. Force Python to properly recognize the nested root folders for 'from src.db ...'
+# 1. Force Python to properly recognize the nested root folders for modules
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _root_dir = os.path.dirname(_current_dir)
 
@@ -35,10 +35,11 @@ for key in SESSION_KEYS:
         st.session_state[key] = None
 
 # ── Already logged in → redirect to role page ─────────────────
-if st.session_state.get("user") and st.session_state.get("profile"):
-    role = st.session_state.profile.get("role", "").lower()
+# Safety Check: Only execute redirect if BOTH user and profile exist
+if st.session_state.get("user") is not None and st.session_state.get("profile") is not None:
+    role = str(st.session_state.profile.get("role", "")).lower().strip()
     
-    # Standard Streamlit execution map
+    # Explicitly map the paths relative to the execution root folder 'src/'
     role_map = {
         "producer": "pages/1_Producer.py",
         "merchant": "pages/2_Merchant.py",
@@ -48,18 +49,17 @@ if st.session_state.get("user") and st.session_state.get("profile"):
     
     if role in role_map:
         try:
-            # Try loading the standard path first
             st.switch_page(role_map[role])
         except Exception:
             try:
-                # Fallback: adjust for the nested 'src/src' directory environment on Render
+                # Fallback pathing for the nested folder environment inside Render
                 st.switch_page(f"src/{role_map[role]}")
             except Exception as e:
-                st.error(f"Could not load dashboard page: {e}. Check folder configuration.")
+                st.error(f"Could not load dashboard page: {e}.")
     else:
         st.error(f"Unknown role: '{role}'. Contact admin.")
 
-# ── Tabs Configuration ────────────────────────────────────────
+# ── Tabs Configuration (Visible when not logged in) ───────────
 tab_login, tab_register = st.tabs(["🔒 Login", "📝 Register"])
 
 # ── Login ─────────────────────────────────────────────────────
