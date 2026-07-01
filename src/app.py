@@ -1,5 +1,15 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
+import sys
+import os
+
+# Get the directory where app.py lives (src/) and its parent directory (the root folder)
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_current_dir)
+
+# Add both to sys.path so 'from src.db' works and Streamlit page navigation works cleanly
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+if _current_dir not in sys.path:
+    sys.path.insert(0, _current_dir)
 
 
 import streamlit as st
