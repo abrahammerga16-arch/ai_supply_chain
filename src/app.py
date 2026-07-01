@@ -1,16 +1,14 @@
 import sys
 import os
 
-# Get the directory where app.py lives (src/) and its parent directory (the root folder)
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_root_dir = os.path.dirname(_current_dir)
+# 1. Clear out the bad folder mapping that breaks 'from src.db ...'
+_current_dir = os.path.dirname(os.path.abspath(__file__)) # This equals .../src/src
+_root_dir = os.path.dirname(_current_dir)                 # This equals .../src
 
-# Add both to sys.path so 'from src.db' works and Streamlit page navigation works cleanly
 if _root_dir not in sys.path:
     sys.path.insert(0, _root_dir)
 if _current_dir not in sys.path:
     sys.path.insert(0, _current_dir)
-
 
 import streamlit as st
 from src.db import get_supabase_client
@@ -39,60 +37,24 @@ for key in SESSION_KEYS:
 # ── Already logged in → redirect to role page ─────────────────
 if st.session_state.get("user") and st.session_state.get("profile"):
     role = st.session_state.profile.get("role", "").lower()
+    
+    # 2. Add fallback path logic to handle the nested deployment directory
     role_map = {
         "producer": "pages/1_Producer.py",
         "merchant": "pages/2_Merchant.py",
         "customer": "pages/3_Customer.py",
         "admin":    "pages/4_Admin.py",
     }
+    
     if role in role_map:
-        st.switch_page(role_map[role])
+        try:
+            # First try the standard path
+            st.switch_page(role_map[role])
+        except Exception:
+            try:
+                # If nested, try matching with the execution prefix
+                st.switch_page(f"src/{role_map[role]}")
+            except Exception as e:
+                st.error(f"Could not load dashboard page: {e}. Check folder configuration.")
     else:
-        st.error(f"Unknown role: '{role}'. Contact support.")
-    st.stop()
-
-# ── Landing UI ────────────────────────────────────────────────
-st.title("🌾 AI Supply Chain Platform")
-st.caption("Wolaita Sodo University · Department of ECE")
-st.divider()
-
-tab_login, tab_register = st.tabs(["Login", "Register"])
-
-# ── Login ─────────────────────────────────────────────────────
-with tab_login:
-    st.subheader("Sign In")
-    email    = st.text_input("Email",    key="login_email")
-    password = st.text_input("Password", type="password", key="login_password")
-
-    if st.button("Login", use_container_width=True, type="primary"):
-        if not email or not password:
-            st.warning("Please fill in all fields.")
-        else:
-            with st.spinner("Signing in…"):
-                ok, msg = sign_in(email, password)
-            if ok:
-                st.rerun()
-            else:
-                st.error(msg)
-
-# ── Register ──────────────────────────────────────────────────
-with tab_register:
-    st.subheader("Create Account")
-    reg_name     = st.text_input("Full Name",        key="reg_name")
-    reg_email    = st.text_input("Email",            key="reg_email")
-    reg_password = st.text_input("Password",         type="password", key="reg_password")
-    reg_role     = st.selectbox("Role",   ["producer", "merchant", "customer"], key="reg_role")
-    reg_region   = st.selectbox("Region", REGIONS, key="reg_region")
-    reg_phone    = st.text_input("Phone (optional)", key="reg_phone")
-
-    if st.button("Register", use_container_width=True, type="primary"):
-        if not all([reg_name, reg_email, reg_password]):
-            st.warning("Name, email, and password are required.")
-        else:
-            with st.spinner("Creating account…"):
-                ok, msg = sign_up(reg_email, reg_password, reg_name, reg_role, reg_region, reg_phone)
-            if ok:
-                st.success(msg)
-                st.info("Please go to the Login tab to sign in.")
-            else:
-                st.error(msg)
+        st.error(f"Unknown role: '{role}'. Contact admin.")
