@@ -144,7 +144,7 @@ with st.sidebar:
                     p = get_profile(res.user.id)
                     if p and p.get("role") == "admin":
                         st.session_state.admin_user    = res.user
-                        st.session_state.admin_profile = p
+                        st.session_state.admin_profile = get_profile(res.user.id)
                         st.success("Welcome, Admin.")
                         st.rerun()
                     else:
