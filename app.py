@@ -75,7 +75,7 @@ def fetch_notifications(user_id):
         supabase.table("notifications")
         .select("*")
         .eq("user_id", user_id)
-        .order("created_at", desc=True)
+        .order("created_at", descending=True)
     )
 
 def render_notifications_sidebar(user_id):
@@ -239,7 +239,7 @@ def render_producer_dashboard(user_id):
                 # Simple pricing trends plot
                 dates = [datetime.date.today() - datetime.timedelta(days=x) for x in range(30, 0, -5)][::-1]
                 base_p = rec['fair_price']
-                prices = [base_p * (1 + (x * 0.005 if x % 2 == 0 else -x * 0.003)) for x in range(6)]
+                prices = [base_p * (1 + (x * 0.005 if x%2==0 else -x*0.003)) for x in range(6)]
                 trend_df = pd.DataFrame({"Date": dates, "Price (Birr)": prices}).set_index("Date")
                 st.line_chart(trend_df)
 
