@@ -1712,7 +1712,7 @@ def show_merchant(profile):
                                     new_notes  = st.text_area("Notes", value=o.get("notes") or "", key=f'upd_notes_{o["id"]}')
                                 if st.button("💾 Save Changes", key=f'upd_save_{o["id"]}', use_container_width=True):
                                     try:
-                                        supabase.table("orders").update(
+                                        supabase.table("orders").update({
                                             "quantity_ordered": new_qty, "total_price_birr": new_total,
-                                            "notes": new_notes, "status": new_status,
+                                            "notes": new_notes, "status": new_status,}
                           
