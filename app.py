@@ -1855,7 +1855,7 @@ def show_admin(profile):
         
         # List all documents
         try:
-            all_docs = supabase.table("verification_documents").select("*, profiles(full_name, role, email)").order("uploaded_at", desc=True).execute().data or []
+            all_docs = supabase.table("verification_documents").select("*", profiles(full_name, role, email)).order("uploaded_at", desc=True).execute().data or []
         except Exception as e:
             st.error(f"Could not load documents: {e}")
             all_docs = []
