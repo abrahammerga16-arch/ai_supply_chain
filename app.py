@@ -477,7 +477,7 @@ def render_browse_tab(role, profile):
                 st.caption(p.get("description") or "No description")
                 seller = p.get("profiles")
                 if seller:
-                    st.caption(f'👤 {seller.get('full_name','Unknown')} · 📍 {p["region"]}')
+                    st.caption(f"👤 {seller.get('full_name','Unknown')} · 📍 {p["region"]}")
             with c2:
                 st.metric("Price", f'{p["price_birr"]:,.0f} Birr')
                 st.caption(f'Available: {p["quantity"]} {p["unit"]}')
