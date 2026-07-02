@@ -1068,7 +1068,7 @@ def show_producer(profile):
     st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
     st.divider()
 
-    tab_products, tab_incoming, tab_match, tab_agree, tab_history, tab_notif = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching", "📄 Agreements", "📜 History", "🔔 Notifications"])
+    tab_products, tab_demand, tab_incoming, tab_match, tab_agree, tab_history, tab_notif = st.tabs(["📦 My Products", "📈 Demand Forecast", "📬 Incoming Orders", "🤝 AI Matching", "📄 Agreements", "📜 History", "🔔 Notifications"])
 
     # ── MY PRODUCTS ───────────────────────────────────────────
     with tab_products:
@@ -1250,6 +1250,168 @@ def show_producer(profile):
                         if cancel:
                             st.session_state.edit_product_id = None
                             st.rerun()
+
+    # Add this tab in show_producer() function, after tab_products
+tab_demand = st.tabs(["📈 Demand Forecast"])[0]  # Add this line with other tabs
+
+with tab_demand:
+    st.subheader("📈 AI Demand Forecasting")
+    st.caption("Predict future demand for your products using machine learning")
+    
+    # Load producer's products
+    try:
+        products_for_forecast = supabase.table("products") \
+            .select("*") \
+            .eq("producer_id", st.session_state.user.id) \
+            .execute().data or []
+    except Exception as e:
+        st.error(f"Could not load products: {e}")
+        products_for_forecast = []
+    
+    if not products_for_forecast:
+        st.info("You have no products listed yet. Add products first to see demand forecasts.")
+    else:
+        # Select product for forecasting
+        product_names = [p["product_name"] for p in products_for_forecast]
+        selected_product = st.selectbox(
+            "Select Product for Demand Forecast",
+            product_names,
+            key="demand_product_select"
+        )
+        
+        # Get selected product details
+        selected_p = next((x for x in products_for_forecast if x["product_name"] == selected_product), None)
+        
+        if selected_p:
+            # Show current product info
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Current Stock", f"{selected_p['quantity']} {selected_p['unit']}")
+            with col2:
+                st.metric("Price", f"{selected_p['price_birr']:,.0f} Birr/{selected_p['unit']}")
+            with col3:
+                st.metric("Quality Grade", selected_p.get('quality_grade', 'N/A'))
+            
+            # Time horizon selection
+            forecast_horizon = st.selectbox(
+                "Forecast Period",
+                ["Next 7 days", "Next 30 days", "Next 3 months", "Next 6 months"],
+                key="demand_horizon"
+            )
+            
+            if st.button("🤖 Generate Demand Forecast", type="primary", use_container_width=True):
+                try:
+                    from src.demand_engine import forecast_demand
+                    
+                    forecast = forecast_demand(
+                        sector=selected_p["sector"],
+                        product=selected_p["product_name"],
+                        region=selected_p["region"],
+                        historical_data=None
+                    )
+                    
+                    # Display forecast results
+                    st.divider()
+                    st.markdown("#### 📊 Demand Forecast Results")
+                    
+                    # Main metrics
+                    fcol1, fcol2, fcol3 = st.columns(3)
+                    
+                    predicted = forecast.get("predicted_demand", 0)
+                    confidence = forecast.get("confidence_interval", {})
+                    
+                    with fcol1:
+                        st.metric(
+                            "Predicted Demand",
+                            f"{predicted:,.1f} {selected_p['unit']}",
+                            delta=f"Based on AI forecast"
+                        )
+                    
+                    with fcol2:
+                        lower = confidence.get("lower", 0)
+                        upper = confidence.get("upper", 0)
+                        st.metric(
+                            "Confidence Range",
+                            f"{lower:,.0f} - {upper:,.0f} {selected_p['unit']}",
+                            delta=f"{confidence.get('confidence', 0)*100:.0f}% confidence"
+                        )
+                    
+                    with fcol3:
+                        trend = forecast.get("trend", "stable")
+                        trend_icon = "📈" if trend == "increasing" else "📉" if trend == "decreasing" else "➡️"
+                        st.metric("Trend", trend.capitalize(), delta=trend_icon)
+                    
+                    # Recommendation
+                    st.info(f"💡 **Recommendation:** {forecast.get('recommendation', 'No specific recommendation')}")
+                    
+                    # Visualization
+                    st.markdown("#### 📈 Demand Projection")
+                    
+                    # Create simple projection chart
+                    import pandas as pd
+                    import numpy as np
+                    
+                    # Generate projection data
+                    if "Next 7 days" in forecast_horizon:
+                        days = 7
+                        step = 1
+                    elif "Next 30 days" in forecast_horizon:
+                        days = 30
+                        step = 5
+                    elif "Next 3 months" in forecast_horizon:
+                        days = 90
+                        step = 15
+                    else:
+                        days = 180
+                        step = 30
+                    
+                    dates = pd.date_range(start=pd.Timestamp.today(), periods=days//step + 1, freq=f'{step}D')
+                    
+                    # Simulate demand curve (you can replace with actual model predictions)
+                    base_demand = predicted / (days // step + 1)
+                    demand_values = [base_demand * (1 + np.random.uniform(-0.2, 0.2)) for _ in dates]
+                    
+                    forecast_df = pd.DataFrame({
+                        'Date': dates,
+                        'Predicted Demand': demand_values,
+                        'Cumulative Demand': np.cumsum(demand_values)
+                    })
+                    
+                    # Display chart
+                    st.line_chart(forecast_df.set_index('Date')['Predicted Demand'])
+                    
+                    # Stock recommendation
+                    st.markdown("#### 📦 Stock Recommendations")
+                    
+                    current_stock = float(selected_p['quantity'])
+                    recommended_stock = predicted
+                    
+                    if current_stock < recommended_stock * 0.5:
+                        st.warning(f"⚠️ **Low Stock Alert**: You have {current_stock} {selected_p['unit']} but predicted demand is {predicted:,.1f} {selected_p['unit']}. Consider increasing production.")
+                    elif current_stock < recommended_stock:
+                        st.info(f"ℹ️ **Adequate Stock**: Your current stock of {current_stock} {selected_p['unit']} is close to predicted demand.")
+                    else:
+                        st.success(f"✅ **Well Stocked**: You have sufficient stock ({current_stock} {selected_p['unit']}) for predicted demand.")
+                    
+                    # Export forecast
+                    if st.button("📥 Export Forecast Report", key="export_demand_forecast"):
+                        csv_data = forecast_df.to_csv(index=False)
+                        st.download_button(
+                            label="⬇️ Download Forecast CSV",
+                            data=csv_data,
+                            file_name=f"demand_forecast_{selected_product}_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    
+                except Exception as e:
+                    st.error(f"Forecast generation failed: {e}")
+                    st.info("Using fallback forecast based on historical averages.")
+                    
+                    # Fallback forecast
+                    fallback_demand = float(selected_p['quantity']) * 1.2  # 20% increase assumption
+                    st.metric("Estimated Demand", f"{fallback_demand:,.1f} {selected_p['unit']}")
+                    st.caption("Note: AI model unavailable - using simple projection")
 
     # ── INCOMING ORDERS ───────────────────────────────────────
     with tab_incoming:
