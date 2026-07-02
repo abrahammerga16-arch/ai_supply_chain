@@ -103,7 +103,7 @@ def render_notifications_sidebar(user_id):
             f"""
             <div style="padding:10px; border-radius:5px; background-color:#f0f2f6; margin-bottom:8px; border-left:4px solid {status_color}">
                 <small style="color:#888;">{n.get('created_at', '')[:16]}</small><br>
-                f"<b>{icon}</b> {n.get('message', '')}<br>"
+                <b>{icon}</b> {n.get('message', '')}<br>
             </div>
             """, 
             unsafe_html=True
@@ -456,7 +456,7 @@ def render_admin_dashboard():
                                  "total_price_birr": new_total,
                                  "notes": new_notes, 
                                  "status": new_status,
-                            }).eq("id", o["id"]).execute() # Added correct matching identification key filter
+                            }).eq("id", o["id"]).execute() 
                             st.success("System ledger update committed successfully.")
                             st.rerun()
                         except Exception as e:
