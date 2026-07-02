@@ -1730,42 +1730,232 @@ def show_producer(profile):
 
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
-    st.info("Merchant dashboard coming soon.")
+    st.caption(f"Welcome, {profile.get('full_name', 'Merchant')} · 📍 {profile.get('region', 'N/A')}")
 
-def show_customer(profile):
-    st.title("🛒 Customer Dashboard")
-    st.info("Customer dashboard coming soon.")
+    unread = get_unread_count(st.session_state.user.id)
+    notif_label = f"🔔 Notifications ({unread} new)" if unread else "🔔 Notifications"
 
-def show_admin(profile):
-    st.title("🛡️ Admin Panel")
-    st.info("Admin panel coming soon.")
+    tab_browse, tab_orders, tab_agree, tab_pref, tab_notif = st.tabs([
+        "🛒 Browse Products",
+        "📋 My Orders",
+        "📄 Agreements",
+        "⚙️ Preferences",
+        notif_label,
+    ])
 
+    # ── TAB 1: BROWSE PRODUCTS ────────────────────────────────
+    with tab_browse:
+        st.subheader("🛒 Browse & Order Products")
+        st.caption("Discover available products from Ethiopian producers. Place orders directly.")
 
-# ════════════════════════════════════════════════════════════
-# MAIN ROUTER
-# ════════════════════════════════════════════════════════════
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            f_sector = st.selectbox("Sector", ["All"] + SECTORS, key="m_browse_sector")
+        with fc2:
+            f_region = st.selectbox("Region", ["All"] + REGIONS, key="m_browse_region")
+        with fc3:
+            f_search = st.text_input("🔍 Search product name", key="m_browse_search")
 
-profile, role = render_sidebar()
+        f_grade = st.radio("Grade", ["All", "A", "B", "C"], horizontal=True, key="m_browse_grade")
 
-if st.session_state.get("user") is None:
-    show_landing()
-elif profile is None:
-    fetched = get_profile(st.session_state.user.id)
-    if fetched:
-        st.session_state.profile = fetched
-        st.rerun()
-    else:
-        st.error("Could not load your profile. Please sign out and try again.")
-        if st.button("Sign Out"):
-            sign_out()
-            st.rerun()
-elif role == "producer":
-    show_producer(profile)
-elif role == "merchant":
-    show_merchant(profile)
-elif role == "customer":
-    show_customer(profile)
-elif role == "admin":
-    show_admin(profile)
-else:
-    st.warning("Unknown role. Please contact support.")
+        try:
+            q = supabase.table("products").select(
+                "*, profiles(full_name, phone, region)"
+            ).eq("is_available", True)
+            if f_sector != "All":
+                q = q.eq("sector", f_sector)
+            if f_region != "All":
+                q = q.eq("region", f_region)
+            if f_grade != "All":
+                q = q.eq("quality_grade", f_grade)
+            products = q.order("created_at", desc=True).execute().data or []
+            if f_search:
+                products = [p for p in products if f_search.lower() in p["product_name"].lower()]
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            products = []
+
+        if not products:
+            st.info("No products match your filters.")
+        else:
+            st.markdown(f"**{len(products)} product(s) available:**")
+            st.divider()
+            for p in products:
+                seller = p.get("profiles") or {}
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([4, 2, 2])
+                    with c1:
+                        st.markdown(
+                            f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**"
+                        )
+                        st.caption(p.get("description") or "No description provided.")
+                        st.caption(
+                            f"👤 {seller.get('full_name','Unknown Producer')} · "
+                            f"📞 {seller.get('phone','N/A')} · 📍 {p.get('region','N/A')}"
+                        )
+                    with c2:
+                        st.metric("Price / Unit", f"{p['price_birr']:,.0f} Birr")
+                        st.caption(f"Available: {p['quantity']:,.1f} {p['unit']}")
+                    with c3:
+                        _max_qty = max(1.0, float(p["quantity"]))
+                        qty_order = st.number_input(
+                            "Qty to order",
+                            min_value=1.0,
+                            max_value=_max_qty,
+                            value=min(1.0, _max_qty),
+                            key=f"m_qty_{p['id']}",
+                        )
+                        total_birr = qty_order * p["price_birr"]
+                        st.caption(f"Total: **{total_birr:,.0f} Birr**")
+
+                        risk = get_fraud_risk(
+                            sector=p["sector"], product=p["product_name"],
+                            region=p["region"], payment_method="Bank Transfer",
+                            quantity=qty_order, price_birr=p["price_birr"],
+                        )
+                        render_fraud_badge(risk)
+
+                        if st.button("🛒 Place Order", key=f"m_order_{p['id']}", use_container_width=True):
+                            if risk["risk_level"] == "High":
+                                st.warning("⚠️ High fraud risk detected — order still placed but proceed with caution.")
+                            try:
+                                supabase.table("orders").insert({
+                                    "product_id": p["id"],
+                                    "buyer_id": st.session_state.user.id,
+                                    "quantity_ordered": qty_order,
+                                    "total_price_birr": total_birr,
+                                    "status": "pending",
+                                    "fraud_risk_level": risk["risk_level"],
+                                    "fraud_probability": risk["fraud_probability"],
+                                }).execute()
+                                send_notification(
+                                    recipient_id=p["producer_id"],
+                                    title="New Order Received",
+                                    message=(
+                                        f"{profile.get('full_name','A merchant')} ordered "
+                                        f"{qty_order:,.1f} {p['unit']} of {p['product_name']} "
+                                        f"({total_birr:,.0f} Birr). Please confirm."
+                                    ),
+                                    notif_type="info",
+                                )
+                                st.success(f"✅ Order placed — {total_birr:,.0f} Birr. Producer notified.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Order failed: {e}")
+
+    # ── TAB 2: MY ORDERS ─────────────────────────────────────
+    with tab_orders:
+        st.subheader("📋 My Orders")
+        st.caption("Track all orders you have placed with producers.")
+
+        try:
+            my_orders = supabase.table("orders").select(
+                "*, products(product_name, sector, quality_grade, unit, region, price_birr, producer_id),"
+                "profiles!orders_buyer_id_fkey(full_name, phone, region)"
+            ).eq("buyer_id", st.session_state.user.id) \
+             .order("created_at", desc=True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load orders: {e}")
+            my_orders = []
+
+        if not my_orders:
+            st.info("You have not placed any orders yet. Go to Browse Products to get started.")
+        else:
+            total_orders   = len(my_orders)
+            pending_cnt    = sum(1 for o in my_orders if o.get("status") == "pending")
+            confirmed_cnt  = sum(1 for o in my_orders if o.get("status") == "confirmed")
+            delivered_cnt  = sum(1 for o in my_orders if o.get("status") == "delivered")
+            total_spent    = sum(float(o.get("total_price_birr") or 0) for o in my_orders if o.get("status") != "cancelled")
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Total Orders", total_orders)
+            m2.metric("Pending", pending_cnt)
+            m3.metric("Confirmed", confirmed_cnt)
+            m4.metric("Delivered", delivered_cnt)
+            m5.metric("Total Spent", f"{total_spent:,.0f} Birr")
+            st.divider()
+
+            status_filter = st.selectbox(
+                "Filter by status",
+                ["All", "pending", "confirmed", "delivered", "cancelled"],
+                key="m_order_filter",
+            )
+            filtered = my_orders if status_filter == "All" else [
+                o for o in my_orders if o.get("status") == status_filter
+            ]
+
+            STATUS_ICON = {
+                "pending": "🟡", "confirmed": "🟢", "delivered": "✅", "cancelled": "❌"
+            }
+
+            for o in filtered:
+                prod   = o.get("products") or {}
+                status = o.get("status", "pending")
+                clsf   = classify_order(o)
+
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([4, 2, 2])
+                    with c1:
+                        st.markdown(
+                            f"**{prod.get('product_name','Unknown')}** · "
+                            f"{prod.get('sector','')} · Grade **{prod.get('quality_grade','')}**"
+                        )
+                        st.caption(f"📍 {prod.get('region','N/A')}")
+                        st.caption(f"📅 Ordered: {o.get('created_at','')[:10]}")
+                        if clsf.get("awaiting_buyer"):
+                            st.info("📩 Producer sent an order request — check Agreements to confirm.")
+                    with c2:
+                        st.metric("Qty", f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
+                        st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+                    with c3:
+                        st.markdown(f"**Status:** {STATUS_ICON.get(status,'⚪')} {status.capitalize()}")
+                        risk_lvl = o.get("fraud_risk_level", "Unknown")
+                        badge = {"Low":"🟢","Medium":"🟡","High":"🔴"}.get(risk_lvl,"⚪")
+                        st.caption(f"Fraud Risk: {badge} {risk_lvl}")
+
+                        if status == "delivered" and not o.get("merchant_confirmed"):
+                            if st.button(
+                                "✅ Confirm Receipt",
+                                key=f"m_confirm_{o['id']}",
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                try:
+                                    supabase.table("orders").update({
+                                        "merchant_confirmed": True
+                                    }).eq("id", o["id"]).execute()
+                                    producer_id = prod.get("producer_id")
+                                    if producer_id:
+                                        send_notification(
+                                            recipient_id=producer_id,
+                                            title="Delivery Confirmed",
+                                            message=(
+                                                f"{profile.get('full_name','Merchant')} confirmed receipt of "
+                                                f"{prod.get('product_name','the product')}. "
+                                                f"Order is now fully complete."
+                                            ),
+                                            notif_type="success",
+                                            order_id=o["id"],
+                                        )
+                                    st.success("✅ Receipt confirmed. Producer notified.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+
+                        if status == "pending":
+                            if st.button(
+                                "❌ Cancel Order",
+                                key=f"m_cancel_{o['id']}",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    supabase.table("orders").update({"status": "cancelled"}).eq("id", o["id"]).execute()
+                                    producer_id = prod.get("producer_id")
+                                    if producer_id:
+                                        send_notification(
+                                            recipient_id=producer_id,
+                                            title="Order Cancelled",
+                                            message=(
+                                                f"{profile.get('full_name','Merchant')} cancelled their order for "
+                                                f"{prod.get('product_name','a product')}."
+                                  
