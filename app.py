@@ -1010,7 +1010,7 @@ def show_producer(profile):
     st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
     st.divider()
 
-    tab_products, tab_incoming, tab_match, tab_agree, tab_notif = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching", "📄 Agreements", "🔔 Notifications"])
+    tab_products, tab_incoming, tab_match, tab_agree, tab_history, tab_notif = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching", "📄 Agreements", "📜 History", "🔔 Notifications"])
 
     # ── MY PRODUCTS ───────────────────────────────────────────
     with tab_products:
@@ -1795,6 +1795,140 @@ def show_producer(profile):
                                 st.error(f"PDF generation failed: {e}")
 
 
+    # ── HISTORY TAB ───────────────────────────────────────────
+    with tab_history:
+        st.subheader("📜 Delivery History")
+        st.caption("All orders that have been delivered — your complete fulfillment record.")
+
+        try:
+            hist_prod_ids = [
+                p["id"] for p in
+                supabase.table("products").select("id")
+                .eq("producer_id", st.session_state.user.id).execute().data or []
+            ]
+        except Exception as e:
+            st.error(f"Could not load your products: {e}")
+            hist_prod_ids = []
+
+        if not hist_prod_ids:
+            st.info("No products found. Add products to start receiving orders.")
+        else:
+            try:
+                hist_orders = supabase.table("orders") \
+                    .select("*, products(product_name, unit, sector, quality_grade, region), profiles(full_name, phone, region)") \
+                    .in_("product_id", hist_prod_ids) \
+                    .eq("status", "delivered") \
+                    .order("created_at", desc=True).execute().data or []
+            except Exception as e:
+                st.error(f"Could not load history: {e}")
+                hist_orders = []
+
+            if not hist_orders:
+                st.info("No delivered orders yet. Once you mark orders as delivered they will appear here.")
+            else:
+                # ── Summary metrics ──
+                total_rev   = sum(float(o.get("total_price_birr") or 0) for o in hist_orders)
+                total_qty   = sum(float(o.get("quantity_ordered") or 0) for o in hist_orders)
+                buyer_set   = {o.get("buyer_id") for o in hist_orders}
+                hm1, hm2, hm3, hm4 = st.columns(4)
+                hm1.metric("Total Deliveries", len(hist_orders))
+                hm2.metric("Unique Buyers", len(buyer_set))
+                hm3.metric("Total Units Sold", f"{total_qty:,.1f}")
+                hm4.metric("Total Revenue", f"{total_rev:,.0f} Birr")
+                st.divider()
+
+                # ── Filters ──
+                hf1, hf2 = st.columns(2)
+                with hf1:
+                    h_search = st.text_input("🔍 Search product or buyer", key="ph_search")
+                with hf2:
+                    h_sort = st.selectbox("Sort by", ["Newest first", "Oldest first", "Highest value", "Lowest value"], key="ph_sort")
+
+                filtered_h = hist_orders
+                if h_search:
+                    kw = h_search.lower()
+                    filtered_h = [
+                        o for o in filtered_h
+                        if kw in (o.get("products") or {}).get("product_name", "").lower()
+                        or kw in (o.get("profiles") or {}).get("full_name", "").lower()
+                    ]
+                if h_sort == "Oldest first":
+                    filtered_h = sorted(filtered_h, key=lambda o: o.get("created_at", ""))
+                elif h_sort == "Highest value":
+                    filtered_h = sorted(filtered_h, key=lambda o: float(o.get("total_price_birr") or 0), reverse=True)
+                elif h_sort == "Lowest value":
+                    filtered_h = sorted(filtered_h, key=lambda o: float(o.get("total_price_birr") or 0))
+
+                st.markdown(f"**{len(filtered_h)} delivered order(s):**")
+
+                for o in filtered_h:
+                    prod  = o.get("products") or {}
+                    buyer = o.get("profiles") or {}
+                    both_confirmed = bool(o.get("producer_confirmed")) and bool(o.get("merchant_confirmed"))
+
+                    with st.container(border=True):
+                        hc1, hc2, hc3 = st.columns([4, 2, 2])
+                        with hc1:
+                            st.markdown(
+                                f"✅ **{prod.get('product_name','Unknown')}** · "
+                                f"{prod.get('sector','')} · Grade **{prod.get('quality_grade','')}**"
+                            )
+                            st.caption(
+                                f"👤 Buyer: **{buyer.get('full_name','Unknown')}** · "
+                                f"📞 {buyer.get('phone','N/A')} · 📍 {buyer.get('region','N/A')}"
+                            )
+                            st.caption(f"📅 Ordered: {o.get('created_at','')[:10]}")
+                            if o.get("agreement_delivery_date"):
+                                st.caption(f"🗓 Agreed Delivery: {o.get('agreement_delivery_date','')[:10]} · 💳 {o.get('agreement_payment_method','N/A')}")
+                            if o.get("notes"):
+                                st.caption(f"📝 {o['notes']}")
+                        with hc2:
+                            st.metric("Qty",   f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
+                            st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+                        with hc3:
+                            if both_confirmed:
+                                st.success("✅ Fully Confirmed")
+                            else:
+                                st.info("🚚 Delivered · Awaiting buyer confirmation")
+                            risk_lvl = o.get("fraud_risk_level", "Unknown")
+                            badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
+                            st.caption(f"Fraud Risk: {badge} {risk_lvl}")
+
+                # ── Export to CSV ──
+                st.divider()
+                if st.button("📥 Export History to CSV", key="ph_export_csv"):
+                    rows = []
+                    for o in hist_orders:
+                        prod  = o.get("products") or {}
+                        buyer = o.get("profiles") or {}
+                        rows.append({
+                            "Order ID":          str(o.get("id",""))[:8],
+                            "Product":           prod.get("product_name",""),
+                            "Sector":            prod.get("sector",""),
+                            "Grade":             prod.get("quality_grade",""),
+                            "Buyer":             buyer.get("full_name",""),
+                            "Buyer Region":      buyer.get("region",""),
+                            "Quantity":          o.get("quantity_ordered",""),
+                            "Unit":              prod.get("unit",""),
+                            "Total (Birr)":      o.get("total_price_birr",""),
+                            "Payment Method":    o.get("agreement_payment_method",""),
+                            "Delivery Date":     (o.get("agreement_delivery_date","") or "")[:10],
+                            "Date Ordered":      (o.get("created_at","") or "")[:10],
+                            "Fraud Risk":        o.get("fraud_risk_level",""),
+                            "Fully Confirmed":   "Yes" if (bool(o.get("producer_confirmed")) and bool(o.get("merchant_confirmed"))) else "No",
+                        })
+                    df_export = pd.DataFrame(rows)
+                    csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="⬇️ Download CSV",
+                        data=csv_bytes,
+                        file_name="producer_delivery_history.csv",
+                        mime="text/csv",
+                        key="ph_dl_csv",
+                        use_container_width=True,
+                    )
+
+
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
     st.caption(f"Welcome, {profile.get('full_name', 'Merchant')} · 📍 {profile.get('region', 'N/A')}")
@@ -1802,10 +1936,11 @@ def show_merchant(profile):
     unread = get_unread_count(st.session_state.user.id)
     notif_label = f"🔔 Notifications ({unread} new)" if unread else "🔔 Notifications"
 
-    tab_browse, tab_orders, tab_agree, tab_pref, tab_notif = st.tabs([
+    tab_browse, tab_orders, tab_agree, tab_history, tab_pref, tab_notif = st.tabs([
         "🛒 Browse Products",
         "📋 My Orders",
         "📄 Agreements",
+        "📜 History",
         "⚙️ Preferences",
         notif_label,
     ])
@@ -2285,7 +2420,145 @@ def show_merchant(profile):
                         except Exception as e:
                             st.error(f"PDF generation failed: {e}")
 
-    # ── TAB 4: PREFERENCES ────────────────────────────────────
+    # ── TAB 4: HISTORY ───────────────────────────────────────
+    with tab_history:
+        st.subheader("📜 Purchase History")
+        st.caption("All orders that have been delivered to you — your complete procurement record.")
+
+        try:
+            mh_orders = supabase.table("orders").select(
+                "*, products(product_name, sector, quality_grade, unit, region, producer_id),"
+                "profiles!orders_buyer_id_fkey(full_name, phone, region)"
+            ).eq("buyer_id", st.session_state.user.id) \
+             .eq("status", "delivered") \
+             .order("created_at", desc=True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load history: {e}")
+            mh_orders = []
+
+        if not mh_orders:
+            st.info("No delivered orders yet. Once producers mark your orders as delivered they will appear here.")
+        else:
+            # ── Summary metrics ──
+            mh_total_spent = sum(float(o.get("total_price_birr") or 0) for o in mh_orders)
+            mh_total_qty   = sum(float(o.get("quantity_ordered") or 0) for o in mh_orders)
+            mh_products    = {(o.get("products") or {}).get("product_name","") for o in mh_orders}
+            mhm1, mhm2, mhm3, mhm4 = st.columns(4)
+            mhm1.metric("Total Deliveries",    len(mh_orders))
+            mhm2.metric("Unique Products",      len(mh_products))
+            mhm3.metric("Total Units Received", f"{mh_total_qty:,.1f}")
+            mhm4.metric("Total Spent",          f"{mh_total_spent:,.0f} Birr")
+            st.divider()
+
+            # ── Filters ──
+            mhf1, mhf2 = st.columns(2)
+            with mhf1:
+                mh_search = st.text_input("🔍 Search product or sector", key="mh_search")
+            with mhf2:
+                mh_sort = st.selectbox("Sort by", ["Newest first", "Oldest first", "Highest value", "Lowest value"], key="mh_sort")
+
+            filtered_mh = mh_orders
+            if mh_search:
+                kw = mh_search.lower()
+                filtered_mh = [
+                    o for o in filtered_mh
+                    if kw in (o.get("products") or {}).get("product_name", "").lower()
+                    or kw in (o.get("products") or {}).get("sector", "").lower()
+                ]
+            if mh_sort == "Oldest first":
+                filtered_mh = sorted(filtered_mh, key=lambda o: o.get("created_at", ""))
+            elif mh_sort == "Highest value":
+                filtered_mh = sorted(filtered_mh, key=lambda o: float(o.get("total_price_birr") or 0), reverse=True)
+            elif mh_sort == "Lowest value":
+                filtered_mh = sorted(filtered_mh, key=lambda o: float(o.get("total_price_birr") or 0))
+
+            st.markdown(f"**{len(filtered_mh)} delivered order(s):**")
+
+            for o in filtered_mh:
+                prod = o.get("products") or {}
+                both_confirmed = bool(o.get("producer_confirmed")) and bool(o.get("merchant_confirmed"))
+
+                with st.container(border=True):
+                    mhc1, mhc2, mhc3 = st.columns([4, 2, 2])
+                    with mhc1:
+                        st.markdown(
+                            f"✅ **{prod.get('product_name','Unknown')}** · "
+                            f"{prod.get('sector','')} · Grade **{prod.get('quality_grade','')}**"
+                        )
+                        st.caption(f"📍 Producer Region: {prod.get('region','N/A')}")
+                        st.caption(f"📅 Ordered: {o.get('created_at','')[:10]}")
+                        if o.get("agreement_delivery_date"):
+                            st.caption(
+                                f"🗓 Agreed Delivery: {o.get('agreement_delivery_date','')[:10]} · "
+                                f"💳 {o.get('agreement_payment_method','N/A')}"
+                            )
+                        if o.get("notes"):
+                            st.caption(f"📝 {o['notes']}")
+                    with mhc2:
+                        st.metric("Qty",   f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
+                        st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+                    with mhc3:
+                        if both_confirmed:
+                            st.success("✅ Fully Confirmed")
+                        else:
+                            st.warning("⏳ Awaiting your confirmation")
+                            if st.button("✅ Confirm Receipt", key=f"mh_confirm_{o['id']}", use_container_width=True, type="primary"):
+                                try:
+                                    supabase.table("orders").update({"merchant_confirmed": True}).eq("id", o["id"]).execute()
+                                    producer_id = prod.get("producer_id")
+                                    if producer_id:
+                                        send_notification(
+                                            recipient_id=producer_id,
+                                            title="✅ Delivery Confirmed by Merchant",
+                                            message=(
+                                                f"{profile.get('full_name','Merchant')} confirmed receipt of "
+                                                f"{prod.get('product_name','the product')}. "
+                                                f"Order is now fully complete."
+                                            ),
+                                            notif_type="success",
+                                            order_id=o["id"],
+                                        )
+                                    st.success("Receipt confirmed. Producer notified.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed: {e}")
+                        risk_lvl = o.get("fraud_risk_level", "Unknown")
+                        badge = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}.get(risk_lvl, "⚪")
+                        st.caption(f"Fraud Risk: {badge} {risk_lvl}")
+
+            # ── Export to CSV ──
+            st.divider()
+            if st.button("📥 Export History to CSV", key="mh_export_csv"):
+                rows = []
+                for o in mh_orders:
+                    prod = o.get("products") or {}
+                    rows.append({
+                        "Order ID":          str(o.get("id",""))[:8],
+                        "Product":           prod.get("product_name",""),
+                        "Sector":            prod.get("sector",""),
+                        "Grade":             prod.get("quality_grade",""),
+                        "Producer Region":   prod.get("region",""),
+                        "Quantity":          o.get("quantity_ordered",""),
+                        "Unit":              prod.get("unit",""),
+                        "Total (Birr)":      o.get("total_price_birr",""),
+                        "Payment Method":    o.get("agreement_payment_method",""),
+                        "Delivery Date":     (o.get("agreement_delivery_date","") or "")[:10],
+                        "Date Ordered":      (o.get("created_at","") or "")[:10],
+                        "Fraud Risk":        o.get("fraud_risk_level",""),
+                        "Fully Confirmed":   "Yes" if (bool(o.get("producer_confirmed")) and bool(o.get("merchant_confirmed"))) else "No",
+                    })
+                df_mh = pd.DataFrame(rows)
+                csv_mh = df_mh.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="⬇️ Download CSV",
+                    data=csv_mh,
+                    file_name="merchant_purchase_history.csv",
+                    mime="text/csv",
+                    key="mh_dl_csv",
+                    use_container_width=True,
+                )
+
+    # ── TAB 5: PREFERENCES ────────────────────────────────────
     with tab_pref:
         st.subheader("⚙️ Buying Preferences")
         st.caption("Set your preferences so producers can match you with the right products.")
