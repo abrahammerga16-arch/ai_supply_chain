@@ -1010,7 +1010,7 @@ def show_producer(profile):
     st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
     st.divider()
 
-    tab_products, tab_incoming, tab_match = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching"])
+    tab_products, tab_incoming, tab_match, tab_agree, tab_notif = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching", "📄 Agreements", "🔔 Notifications"])
 
     # ── MY PRODUCTS ───────────────────────────────────────────
     with tab_products:
@@ -1515,6 +1515,218 @@ def show_producer(profile):
                                             )
                                         except Exception as e:
                                             st.error(f"Failed to send request: {e}")
+
+    # ── NOTIFICATIONS ─────────────────────────────────────────
+    with tab_notif:
+        st.subheader("🔔 Notifications")
+        st.caption("Order confirmations, deliveries, and updates from the platform.")
+
+        uid = st.session_state.user.id
+
+        ncol1, ncol2 = st.columns([3, 1])
+        with ncol2:
+            if st.button("✅ Mark All Read", use_container_width=True, key="prod_mark_all_read"):
+                try:
+                    supabase.table("notifications").update({"is_read": True}) \
+                        .eq("recipient_id", uid).eq("is_read", False).execute()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+
+        try:
+            notifs = supabase.table("notifications").select("*") \
+                .eq("recipient_id", uid) \
+                .order("created_at", desc=True).limit(50).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load notifications: {e}")
+            notifs = []
+
+        if not notifs:
+            st.info("No notifications yet.")
+        else:
+            unread = [n for n in notifs if not n.get("is_read")]
+            read   = [n for n in notifs if n.get("is_read")]
+
+            with ncol1:
+                st.caption(f"**{len(unread)} unread** · {len(read)} read")
+
+            icon_map  = {"success": "✅", "warning": "⚠️", "error": "❌", "info": "ℹ️"}
+            color_map = {"success": "#e8f8f5", "warning": "#fef9e7", "error": "#fdedec", "info": "#eaf2fb"}
+            border_map = {"success": "#117a65", "warning": "#f39c12", "error": "#e74c3c", "info": "#1a5276"}
+
+            def _fmt_dt(s):
+                try:
+                    import datetime as _dt
+                    return _dt.datetime.fromisoformat(s.replace("Z", "+00:00")).strftime("%d %b %Y, %H:%M")
+                except Exception:
+                    return str(s)[:16]
+
+            def _render_notif(n):
+                ntype  = n.get("type", "info")
+                icon   = icon_map.get(ntype, "ℹ️")
+                bg     = color_map.get(ntype, "#eaf2fb")
+                border = border_map.get(ntype, "#1a5276")
+                bold   = "font-weight:700;" if not n.get("is_read") else ""
+                html = (
+                    "<div style=\"background:" + bg + ";border-left:4px solid " + border + ";"
+                    "border-radius:8px;padding:12px 16px;margin-bottom:8px;\">"
+                    "<div style=\"" + bold + "font-size:14px;\">" + icon + " " + n.get("title","") + "</div>"
+                    "<div style=\"font-size:13px;color:#333;margin-top:4px;\">" + n.get("message","") + "</div>"
+                    "<div style=\"font-size:11px;color:#888;margin-top:6px;\">🕐 " + _fmt_dt(n.get("created_at","")) + "</div>"
+                    "</div>"
+                )
+                st.markdown(html, unsafe_allow_html=True)
+                if not n.get("is_read"):
+                    if st.button("Mark read", key=f"prod_read_{n['id']}", use_container_width=False):
+                        try:
+                            supabase.table("notifications").update({"is_read": True}).eq("id", n["id"]).execute()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+
+            if unread:
+                st.markdown(f"### 🔴 Unread ({len(unread)})")
+                for n in unread:
+                    _render_notif(n)
+
+            if read:
+                with st.expander(f"📂 Read notifications ({len(read)})"):
+                    for n in read:
+                        _render_notif(n)
+
+
+    # ── SUPPLY AGREEMENTS ─────────────────────────────────────
+    with tab_agree:
+        st.subheader("📄 Supply Agreements")
+        st.caption("Generate a formal PDF agreement for any confirmed order.")
+
+        # Load confirmed/delivered orders for this producer's products
+        try:
+            my_prod_ids_a = [
+                p["id"] for p in
+                supabase.table("products").select("id")
+                .eq("producer_id", st.session_state.user.id).execute().data or []
+            ]
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            my_prod_ids_a = []
+
+        if not my_prod_ids_a:
+            st.info("No products found. Add products first.")
+        else:
+            try:
+                agree_orders = supabase.table("orders") \
+                    .select("*, products(product_name, unit, sector, quality_grade, region), profiles(full_name, phone, region)") \
+                    .in_("product_id", my_prod_ids_a) \
+                    .in_("status", ["confirmed", "delivered"]) \
+                    .order("created_at", desc=True).execute().data or []
+            except Exception as e:
+                st.error(f"Could not load orders: {e}")
+                agree_orders = []
+
+            if not agree_orders:
+                st.info("No confirmed or delivered orders yet. Confirm incoming orders first to generate agreements.")
+            else:
+                st.markdown(f"**{len(agree_orders)} order(s) eligible for agreements:**")
+                st.divider()
+
+                for o in agree_orders:
+                    prod   = o.get("products") or {}
+                    buyer  = o.get("profiles") or {}
+                    status = o.get("status", "")
+                    status_icon = "✅" if status == "delivered" else "🟢"
+
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns([4, 2, 2])
+
+                        with c1:
+                            st.markdown(
+                                f"**{prod.get('product_name','Unknown')}** · "
+                                f"Grade **{prod.get('quality_grade','')}** · "
+                                f"{prod.get('sector','')}"
+                            )
+                            st.caption(
+                                f"👤 Buyer: **{buyer.get('full_name','Unknown')}** · "
+                                f"📞 {buyer.get('phone','N/A')} · 📍 {buyer.get('region','N/A')}"
+                            )
+                            st.caption(
+                                f"📅 {o.get('created_at','')[:10]}  ·  "
+                                f"{status_icon} {status.capitalize()}"
+                            )
+
+                        with c2:
+                            st.metric("Qty",   f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
+                            st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+
+                        with c3:
+                            # Delivery date input per order
+                            import datetime as _dt
+                            default_delivery = _dt.date.today() + _dt.timedelta(days=14)
+                            delivery_date = st.date_input(
+                                "Delivery Date",
+                                value=default_delivery,
+                                key=f"agree_date_{o['id']}",
+                            )
+                            payment_method = st.selectbox(
+                                "Payment",
+                                ["Bank Transfer", "Cash on Delivery", "Mobile Money", "Letter of Credit"],
+                                key=f"agree_pay_{o['id']}",
+                            )
+
+                        notes_val = st.text_input(
+                            "Additional notes (optional)",
+                            value=o.get("notes") or "",
+                            key=f"agree_notes_{o['id']}",
+                            placeholder="Special conditions, packaging requirements…"
+                        )
+
+                        if st.button(
+                            "📄 Generate & Download Agreement PDF",
+                            key=f"gen_pdf_{o['id']}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            try:
+                                qty   = float(o.get("quantity_ordered", 0))
+                                total = float(o.get("total_price_birr", 0))
+                                unit_price = (total / qty) if qty else 0
+
+                                pdf_bytes = generate_agreement_pdf(
+                                    producer_name=profile.get("full_name", "Producer"),
+                                    producer_phone=profile.get("phone", ""),
+                                    producer_region=profile.get("region", ""),
+                                    merchant_name=buyer.get("full_name", "Merchant"),
+                                    merchant_phone=buyer.get("phone", ""),
+                                    merchant_region=buyer.get("region", ""),
+                                    product_name=prod.get("product_name", ""),
+                                    sector=prod.get("sector", ""),
+                                    quality_grade=prod.get("quality_grade", ""),
+                                    quantity=qty,
+                                    unit=prod.get("unit", ""),
+                                    price_per_unit=unit_price,
+                                    total_price=total,
+                                    delivery_date=delivery_date.strftime("%d %B %Y"),
+                                    payment_method=payment_method,
+                                    notes=notes_val.strip(),
+                                    agreement_id=str(o["id"]),
+                                    producer_confirmed=bool(o.get("producer_confirmed")),
+                                    merchant_confirmed=bool(o.get("merchant_confirmed")),
+                                )
+                                prod_name_safe  = prod.get("product_name","product").replace(" ","_")
+                                buyer_name_safe = buyer.get("full_name","buyer").replace(" ","_")
+                                fname = f"agreement_{prod_name_safe}_{buyer_name_safe}_{o['id'][:8]}.pdf"
+                                st.download_button(
+                                    label="⬇️ Click to Download PDF",
+                                    data=pdf_bytes,
+                                    file_name=fname,
+                                    mime="application/pdf",
+                                    key=f"dl_pdf_{o['id']}",
+                                    use_container_width=True,
+                                )
+                                st.success("Agreement PDF ready — click above to download.")
+                            except Exception as e:
+                                st.error(f"PDF generation failed: {e}")
+
 
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
