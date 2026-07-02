@@ -562,7 +562,7 @@ def render_notifications_tab(user_id):
                 f"<div style='background:{bg_map.get(ntype,'#eaf2fb')};border-radius:8px;"
                 f"padding:14px 16px;margin-bottom:10px;"
                 f"border-left:4px solid #{border_map.get(ntype,'1a5276')};'>"
-                f"<b>{icon_map.get(ntype, "🔔")}</b><br>"
+                f"<b>{icon_map.get(ntype, '🔔')}</b><br>"
                 f'{n["message"]}<br>'
                 f"<small style='color:#888;'>{_fmt_dt(n.get('created_at',''))}</small></div>",
                 unsafe_allow_html=True
