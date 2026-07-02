@@ -1844,7 +1844,7 @@ def show_merchant(profile):
                         with col_a:
                             st.markdown(f"**{pname}**")
                             st.caption(f"Seller: {seller_name} · 📞 {seller_phone}")
-                            st.caption(f"📍 {prod.get('region','N/A')} · {prod.get('sector','N/A')}")
+                            st.caption(f'📍 {prod.get('region','N/A')} · {prod.get('sector','N/A')}')
                             st.caption(f"Qty: {o['quantity_ordered']} {unit} · Grade: {prod.get('quality_grade','N/A')}")
                             if o.get("notes"):
                                 st.caption(f'📝 {o["notes"]}')
