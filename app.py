@@ -1010,7 +1010,7 @@ def show_producer(profile):
     st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
     st.divider()
 
-    tab_products, tab_incoming = st.tabs(["📦 My Products", "📬 Incoming Orders"])
+    tab_products, tab_incoming, tab_match = st.tabs(["📦 My Products", "📬 Incoming Orders", "🤝 AI Matching"])
 
     # ── MY PRODUCTS ───────────────────────────────────────────
     with tab_products:
@@ -1337,6 +1337,184 @@ def show_producer(profile):
                                             st.error(f"Failed: {e}")
                                 else:
                                     st.caption(f"No actions for **{status}** orders.")
+
+    # ── AI MERCHANT MATCHING ──────────────────────────────────
+    with tab_match:
+        st.subheader("🤝 AI Merchant Matching")
+        st.caption("Select one of your products — the AI will rank the best-fit merchants to send an order request.")
+
+        # Load producer's products for selection
+        try:
+            my_products_m = supabase.table("products").select("*")                 .eq("producer_id", st.session_state.user.id)                 .eq("is_available", True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            my_products_m = []
+
+        if not my_products_m:
+            st.info("You have no available products listed. Add and mark products as available first.")
+        else:
+            product_names = [p["product_name"] for p in my_products_m]
+            selected_name = st.selectbox("Select Product to Match", product_names, key="match_product_select")
+            p = next((x for x in my_products_m if x["product_name"] == selected_name), None)
+
+            if p:
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Price", f"{p['price_birr']:,.0f} Birr/{p['unit']}")
+                mc2.metric("Qty Available", f"{p['quantity']} {p['unit']}")
+                mc3.metric("Grade", p.get("quality_grade",""))
+
+                if st.button("🤖 Find Best Merchants", type="primary", use_container_width=True, key="run_match"):
+                    try:
+                        merchants_raw = supabase.table("profiles").select("*").eq("role", "merchant").execute().data or []
+                        if not merchants_raw:
+                            st.warning("No merchants registered in the system yet.")
+                        else:
+                            listing_data = {
+                                "sector":               p["sector"],
+                                "product_name":         p["product_name"],
+                                "price_birr":           p["price_birr"],
+                                "quantity":             p["quantity"],
+                                "quality_grade":        p["quality_grade"],
+                                "region":               p["region"],
+                                "is_verified":          1,
+                                "delivery_available":   1,
+                                "producer_rating":      4.0,
+                                "producer_experience":  3,
+                                "producer_tx":          0,
+                                "return_rate":          0.05,
+                            }
+                            merchant_list = [{
+                                "id":                 m["id"],
+                                "name":               m["full_name"],
+                                "phone":              m.get("phone"),
+                                "region":             m.get("region"),
+                                "preferred_sector":   m.get("preferred_sector"),
+                                "preferred_product":  m.get("preferred_product"),
+                                "max_budget_birr":    m.get("max_budget_birr") or 0,
+                                "preferred_quality":  m.get("preferred_quality") or "Any",
+                                "needs_delivery":     m.get("needs_delivery") or False,
+                                "is_verified":        m.get("is_verified", True),
+                                "rating":             m.get("rating") or 4.0,
+                                "total_transactions": m.get("total_transactions") or 0,
+                                "years_in_business":  m.get("years_in_business") or 1,
+                                "return_rate":        m.get("return_rate") or 0.05,
+                                "payment_method":     m.get("payment_method"),
+                            } for m in merchants_raw]
+
+                            ranked     = rank_merchants(listing_data, merchant_list)
+                            top_matches = [r for r in ranked if r["match_probability"] > 0.1][:5]
+                            st.session_state["match_results"]  = top_matches
+                            st.session_state["match_product"]  = p
+                    except Exception as e:
+                        st.error(f"Matching failed: {e}")
+
+                # Show results if available
+                results = st.session_state.get("match_results")
+                match_p = st.session_state.get("match_product")
+
+                if results is not None and match_p and match_p["id"] == p["id"]:
+                    if not results:
+                        st.info("No strong merchant matches found for this product.")
+                    else:
+                        st.markdown(f"**Top {len(results)} merchant matches for {p['product_name']}:**")
+                        st.divider()
+                        for r in results:
+                            pct   = r["match_probability"] * 100
+                            badge = "🟢" if pct >= 60 else ("🟡" if pct >= 30 else "🔴")
+
+                            with st.container(border=True):
+                                rc1, rc2, rc3 = st.columns([4, 2, 2])
+
+                                with rc1:
+                                    st.markdown(f"{badge} **{r['name']}** — {pct:.1f}% match")
+                                    st.caption(f"📍 {r.get('region','N/A')}  ·  📞 {r.get('phone') or 'N/A'}")
+                                    wants = r.get("preferred_product") or r.get("preferred_sector") or "N/A"
+                                    budget = r.get("max_budget_birr") or 0
+                                    st.caption(f"Wants: **{wants}**  ·  Budget: **{budget:,.0f} Birr**")
+
+                                with rc2:
+                                    req_qty = st.number_input(
+                                        "Qty to send",
+                                        min_value=0.1,
+                                        max_value=max(0.1, float(p["quantity"])),
+                                        value=min(10.0, max(0.1, float(p["quantity"]))),
+                                        step=1.0,
+                                        key=f'reqqty_{p["id"]}_{r["id"]}'
+                                    )
+                                    req_total = req_qty * p["price_birr"]
+                                    st.caption(f"Total: **{req_total:,.0f} Birr**")
+
+                                with rc3:
+                                    if st.button("📩 Send Request", key=f'send_{p["id"]}_{r["id"]}', use_container_width=True):
+                                        try:
+                                            order_res = supabase.table("orders").insert({
+                                                "product_id":        p["id"],
+                                                "buyer_id":          r["id"],
+                                                "quantity_ordered":  req_qty,
+                                                "total_price_birr":  req_total,
+                                                "status":            "pending",
+                                                "fraud_risk_level":  "Low",
+                                                "fraud_probability": 0.05,
+                                                "producer_confirmed":  True,
+                                                "merchant_confirmed":  False,
+                                                "notes": f"Producer-initiated request for {p['product_name']}. Awaiting merchant confirmation.",
+                                            }).execute()
+                                            new_order_id = order_res.data[0]["id"] if order_res.data else None
+
+                                            # Generate agreement PDF
+                                            try:
+                                                import datetime as _dt
+                                                delivery_date = (_dt.date.today() + _dt.timedelta(days=14)).strftime("%d %B %Y")
+                                                pdf_bytes = generate_agreement_pdf(
+                                                    producer_name=profile.get("full_name","Producer"),
+                                                    producer_phone=profile.get("phone",""),
+                                                    producer_region=profile.get("region",""),
+                                                    merchant_name=r.get("name","Merchant"),
+                                                    merchant_phone=r.get("phone",""),
+                                                    merchant_region=r.get("region",""),
+                                                    product_name=p["product_name"],
+                                                    sector=p.get("sector",""),
+                                                    quality_grade=p.get("quality_grade",""),
+                                                    quantity=req_qty,
+                                                    unit=p.get("unit",""),
+                                                    price_per_unit=p["price_birr"],
+                                                    total_price=req_total,
+                                                    delivery_date=delivery_date,
+                                                    payment_method="Bank Transfer",
+                                                    notes="Producer-initiated order. Awaiting merchant confirmation.",
+                                                    agreement_id=str(new_order_id) if new_order_id else "DRAFT",
+                                                    producer_confirmed=True,
+                                                    merchant_confirmed=False,
+                                                )
+                                                fname = f'agreement_{p["product_name"].replace(" ","_")}_{r["name"].replace(" ","_")}.pdf'
+                                                st.success(f'📩 Request sent to {r["name"]}!')
+                                                st.download_button(
+                                                    label="📄 Download Agreement PDF",
+                                                    data=pdf_bytes,
+                                                    file_name=fname,
+                                                    mime="application/pdf",
+                                                    key=f'dl_{p["id"]}_{r["id"]}',
+                                                    use_container_width=True,
+                                                )
+                                            except Exception as pdf_err:
+                                                st.success(f'📩 Request sent to {r["name"]}!')
+                                                st.warning(f"PDF generation failed: {pdf_err}")
+
+                                            send_notification(
+                                                recipient_id=r["id"],
+                                                title="📩 New Order Request from Producer",
+                                                message=(
+                                                    f"**{profile.get('full_name','A producer')}** wants to sell you "
+                                                    f"**{p['product_name']}** — {req_qty:,.1f} {p['unit']} @ "
+                                                    f"{p['price_birr']:,.0f} Birr/unit "
+                                                    f"(Total: {req_total:,.0f} Birr). "
+                                                    f"A supply agreement has been prepared. Go to My Orders to confirm."
+                                                ),
+                                                notif_type="info",
+                                                order_id=str(new_order_id) if new_order_id else None,
+                                            )
+                                        except Exception as e:
+                                            st.error(f"Failed to send request: {e}")
 
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
