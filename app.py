@@ -175,6 +175,25 @@ def get_unread_count(user_id):
     except Exception:
         return 0
 
+def reduce_product_stock(product_id, qty_sold):
+    """
+    Decrease a product's available quantity after an order is placed.
+    Marks the product as unavailable (is_available=False) once stock hits 0.
+    Called immediately after every successful order insert.
+    """
+    try:
+        res = supabase.table("products").select("quantity").eq("id", product_id).execute()
+        if not res.data:
+            return
+        current_qty = float(res.data[0].get("quantity") or 0)
+        new_qty = max(0.0, current_qty - float(qty_sold))
+        update_payload = {"quantity": new_qty}
+        if new_qty <= 0:
+            update_payload["is_available"] = False
+        supabase.table("products").update(update_payload).eq("id", product_id).execute()
+    except Exception as e:
+        st.toast(f"⚠️ Stock update failed: {e}", icon="⚠️")
+
 def get_fraud_risk(sector, product, region, payment_method, quantity, price_birr):
     try:
         return check_fraud_risk(
@@ -509,6 +528,7 @@ def render_browse_tab(role, profile):
                                 "fraud_risk_level": risk["risk_level"],
                                 "fraud_probability": risk["fraud_probability"],
                             }).execute()
+                            reduce_product_stock(p["id"], qty_to_order)
                             st.success(f"✅ Order placed — {total:,.0f} Birr")
                             st.rerun()
                         except Exception as e:
@@ -1527,6 +1547,7 @@ def show_producer(profile):
                                                 "notes": f"Producer-initiated request for {p['product_name']}. Awaiting merchant confirmation.",
                                             }).execute()
                                             new_order_id = order_res.data[0]["id"] if order_res.data else None
+                                            reduce_product_stock(p["id"], req_qty)
 
                                             # Generate agreement PDF
                                             try:
@@ -2059,6 +2080,7 @@ def show_merchant(profile):
                                 "agreement_payment_method": browse_payment,
                                 "notes": browse_notes.strip() or None,
                             }).execute()
+                            reduce_product_stock(p["id"], qty_order)
                             send_notification(
                                 recipient_id=p["producer_id"],
                                 title="📋 New Order with Agreement Received",
