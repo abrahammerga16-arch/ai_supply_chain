@@ -192,9 +192,10 @@ def render_fraud_badge(risk):
 def classify_order(o):
     prod_confirmed  = bool(o.get("producer_confirmed"))
     merch_confirmed = bool(o.get("merchant_confirmed"))
-    is_agreement    = bool(o.get("agreement_delivery_date"))
-    is_producer_request = prod_confirmed and not merch_confirmed and not is_agreement
-    is_regular_order    = not is_agreement and not prod_confirmed
+    # is_agreement = either has delivery date set OR both parties have confirmed
+    is_agreement    = bool(o.get("agreement_delivery_date")) or (prod_confirmed and merch_confirmed)
+    is_producer_request = prod_confirmed and not merch_confirmed and not bool(o.get("agreement_delivery_date"))
+    is_regular_order    = not prod_confirmed and not merch_confirmed and not bool(o.get("agreement_delivery_date"))
     return {
         "prod_confirmed":      prod_confirmed,
         "merch_confirmed":     merch_confirmed,
@@ -969,14 +970,180 @@ def show_landing():
 # PRODUCER DASHBOARD
 # ════════════════════════════════════════════════════════════
 
+def render_agreements_tab(user_id, profile, role):
+    """Dedicated tab showing all agreements the user is party to, with inline PDF download."""
+    st.subheader("📑 My Agreements")
+    st.caption("All formal supply agreements you are party to as producer or merchant")
+
+    try:
+        if role == "producer":
+            # Get all products owned by this producer
+            prod_ids_res = supabase.table("products").select("id").eq("producer_id", user_id).execute()
+            prod_ids = [p["id"] for p in (prod_ids_res.data or [])]
+            if not prod_ids:
+                st.info("You have no listed products yet — no agreements will exist.")
+                return
+            orders = supabase.table("orders")                 .select("*, products(product_name, unit, sector, quality_grade, region, producer_id), profiles(full_name, phone, region)")                 .in_("product_id", prod_ids)                 .order("created_at", desc=True).execute().data or []
+        else:  # merchant
+            orders = supabase.table("orders")                 .select("*, products(product_name, unit, sector, quality_grade, region, producer_id, profiles(full_name, phone, region))")                 .eq("buyer_id", user_id)                 .order("created_at", desc=True).execute().data or []
+    except Exception as e:
+        st.error(f"Could not load agreements: {e}")
+        return
+
+    # Filter to only agreement-type orders
+    agreements = [o for o in orders if (
+        bool(o.get("agreement_delivery_date")) or
+        (bool(o.get("producer_confirmed")) and bool(o.get("merchant_confirmed"))) or
+        (bool(o.get("producer_confirmed")) and not bool(o.get("merchant_confirmed")))
+    )]
+
+    if not agreements:
+        st.info("No agreements found yet.\n\n"
+                "**How agreements are created:**\n"
+                "1. Producer lists a product\n"
+                "2. Producer clicks 'Find Best Merchant Matches' and sends an order request\n"
+                "3. Merchant confirms the request in their My Orders tab\n"
+                "4. Producer clicks 'Create Agreement' and finalizes terms\n"
+                "5. Merchant accepts the agreement — PDF is available for both parties")
+        return
+
+    st.markdown(f"**{len(agreements)} agreement(s) found:**")
+
+    for o in agreements:
+        prod         = o.get("products") or {}
+        pname        = prod.get("product_name", "Unknown Product")
+        unit         = prod.get("unit", "unit")
+        cls          = classify_order(o)
+        prod_conf    = cls["prod_confirmed"]
+        merch_conf   = cls["merch_confirmed"]
+        both_conf    = cls["both_confirmed"]
+
+        if both_conf:
+            status_label = "✅ Fully Executed"
+            status_color = "#1e8449"
+        elif prod_conf and not merch_conf:
+            status_label = "⏳ Awaiting Merchant Acceptance"
+            status_color = "#d68910"
+        else:
+            status_label = "📝 Draft"
+            status_color = "#7f8c8d"
+
+        # Get the other party's profile
+        if role == "producer":
+            other_id = o.get("buyer_id")
+            try:
+                other_res = supabase.table("profiles").select("*").eq("id", other_id).execute()
+                other = other_res.data[0] if other_res.data else {}
+            except Exception:
+                other = {}
+            producer_profile = profile
+            merchant_profile = other
+        else:
+            producer_id = prod.get("producer_id")
+            try:
+                prod_res = supabase.table("profiles").select("*").eq("id", producer_id).execute()
+                other = prod_res.data[0] if prod_res.data else {}
+            except Exception:
+                other = {}
+            producer_profile = other
+            merchant_profile = profile
+
+        with st.container(border=True):
+            st.markdown(
+                f"<div style='border-left:4px solid {status_color};padding-left:12px;'>"
+                f"<b>AGR-{str(o['id'])[:8].upper()}</b> &nbsp;·&nbsp; "
+                f"<span style='color:{status_color};font-weight:600;'>{status_label}</span>"
+                f"</div>", unsafe_allow_html=True
+            )
+            st.markdown("")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f"**Product:** {pname} ({prod.get('sector','N/A')}, Grade {prod.get('quality_grade','N/A')})")
+                st.caption(f"Qty: {o.get('quantity_ordered',0):,.1f} {unit}  ·  Total: {o.get('total_price_birr',0):,.0f} Birr")
+                st.caption(f"Delivery: {o.get('agreement_delivery_date','Not set')}  ·  Payment: {o.get('agreement_payment_method','Not set')}")
+            with c2:
+                st.markdown(f"**Producer:** {producer_profile.get('full_name','N/A')} · 📞 {producer_profile.get('phone','N/A')}")
+                st.markdown(f"**Merchant:** {merchant_profile.get('full_name','N/A')} · 📞 {merchant_profile.get('phone','N/A')}")
+                st.caption(f"Producer ✍️: {'✅' if prod_conf else '⏳'}  ·  Merchant ✍️: {'✅' if merch_conf else '⏳'}")
+
+            # Inline terms
+            with st.expander("📋 Read Agreement Terms"):
+                render_agreement_terms_inline(o, prod, producer_profile, merchant_profile, f"agrtab_{o['id']}")
+
+            # Always-visible PDF download — no button press needed if already generated
+            delivery_str = datetime.date.today()
+            payment_str  = o.get("agreement_payment_method") or "Bank Transfer"
+            if o.get("agreement_delivery_date"):
+                try: delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
+                except Exception: pass
+
+            try:
+                pdf_bytes = generate_agreement_pdf(
+                    producer_name=producer_profile.get("full_name",""),
+                    producer_phone=producer_profile.get("phone",""),
+                    producer_region=producer_profile.get("region",""),
+                    merchant_name=merchant_profile.get("full_name",""),
+                    merchant_phone=merchant_profile.get("phone",""),
+                    merchant_region=merchant_profile.get("region",""),
+                    product_name=pname, sector=prod.get("sector",""),
+                    quality_grade=prod.get("quality_grade",""),
+                    quantity=o.get("quantity_ordered",0), unit=unit,
+                    price_per_unit=(o.get("total_price_birr",0)/o["quantity_ordered"]) if o.get("quantity_ordered") else 0,
+                    total_price=o.get("total_price_birr",0),
+                    delivery_date=delivery_str, payment_method=payment_str,
+                    notes=o.get("notes",""),
+                    agreement_id=str(o["id"]),
+                    producer_confirmed=prod_conf, merchant_confirmed=merch_conf,
+                )
+                st.markdown(
+                    download_pdf_link(pdf_bytes, f'Agreement-{str(o["id"])[:8].upper()}.pdf',
+                        f"📥 Download Agreement PDF (AGR-{str(o['id'])[:8].upper()})"),
+                    unsafe_allow_html=True
+                )
+            except Exception as pdf_err:
+                st.error(f"PDF generation error: {pdf_err}")
+
+            # Merchant: Accept/Reject if pending their acceptance
+            if role == "merchant" and prod_conf and not merch_conf:
+                st.markdown("---")
+                col_acc, col_rej = st.columns(2)
+                with col_acc:
+                    if st.button("✅ Accept Agreement", key=f"agrtab_accept_{o['id']}", use_container_width=True):
+                        try:
+                            supabase.table("orders").update({
+                                "merchant_confirmed": True, "status": "confirmed"
+                            }).eq("id", o["id"]).execute()
+                            send_notification(
+                                recipient_id=prod.get("producer_id",""),
+                                title="🤝 Agreement Accepted!",
+                                message=f"{profile.get('full_name','')} accepted your agreement for {pname}.",
+                                notif_type="success", order_id=o["id"]
+                            )
+                            st.success("✅ Agreement accepted!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+                with col_rej:
+                    if st.button("❌ Reject Agreement", key=f"agrtab_reject_{o['id']}", use_container_width=True):
+                        try:
+                            supabase.table("orders").update({
+                                "merchant_confirmed": False, "status": "cancelled"
+                            }).eq("id", o["id"]).execute()
+                            st.error("Agreement rejected.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
+
+
 def show_producer(profile):
     role = "producer"
     _unread = get_unread_count(st.session_state.user.id)
     _notif_label = f"🔔 Notifications ({_unread})" if _unread > 0 else "🔔 Notifications"
 
-    tab_browse, tab_add, tab_listings, tab_incoming, tab_notif, tab_profile = st.tabs([
+    tab_browse, tab_add, tab_listings, tab_incoming, tab_agreements, tab_notif, tab_profile = st.tabs([
         "📦 Browse", "➕ Add Product", "📋 My Listings",
-        "📬 Incoming Orders", _notif_label, "⚙️ Profile"
+        "📬 Incoming Orders", "📑 Agreements", _notif_label, "⚙️ Profile"
     ])
 
     # ── BROWSE ────────────────────────────────────────────────
@@ -1521,14 +1688,14 @@ def show_producer(profile):
                                 except Exception:
                                     buyer_profile = {}
                                 render_agreement_terms_inline(o, prod, profile, buyer_profile, f'inc_{o["id"]}')
-                                if st.button("📄 Download Agreement PDF", key=f'inc_pdf_{o["id"]}', use_container_width=True):
-                                    delivery_str = datetime.date.today()
-                                    payment_str  = "Bank Transfer"
-                                    if o.get("agreement_delivery_date"):
-                                        try: delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
-                                        except Exception: pass
-                                    if o.get("agreement_payment_method"):
-                                        payment_str = o["agreement_payment_method"]
+                                delivery_str = datetime.date.today()
+                                payment_str  = "Bank Transfer"
+                                if o.get("agreement_delivery_date"):
+                                    try: delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
+                                    except Exception: pass
+                                if o.get("agreement_payment_method"):
+                                    payment_str = o["agreement_payment_method"]
+                                try:
                                     pdf_bytes = generate_agreement_pdf(
                                         producer_name=profile.get("full_name",""), producer_phone=profile.get("phone",""),
                                         producer_region=profile.get("region",""),
@@ -1541,9 +1708,10 @@ def show_producer(profile):
                                         payment_method=payment_str, notes=o.get("notes",""),
                                         agreement_id=str(o["id"]), producer_confirmed=prod_confirmed, merchant_confirmed=merch_confirmed,
                                     )
-                                    st.session_state.agreement_preview_pdf = pdf_bytes
-                                    st.session_state.agreement_preview_ref = str(o["id"])
-                                    st.rerun()
+                                    st.markdown(download_pdf_link(pdf_bytes, f'Agreement-{str(o["id"])[:8].upper()}.pdf',
+                                        "📥 Download Agreement PDF"), unsafe_allow_html=True)
+                                except Exception as pdf_err:
+                                    st.error(f"PDF generation failed: {pdf_err}")
 
         # Finalize agreement (after merchant confirmed request)
         if st.session_state.get("agreement_pending_order_id"):
@@ -1621,6 +1789,10 @@ def show_producer(profile):
                 st.session_state.agreement_preview_ref = None
                 st.rerun()
 
+    # ── AGREEMENTS ────────────────────────────────────────────
+    with tab_agreements:
+        render_agreements_tab(st.session_state.user.id, profile, "producer")
+
     # ── NOTIFICATIONS ─────────────────────────────────────────
     with tab_notif:
         render_notifications_tab(st.session_state.user.id)
@@ -1653,8 +1825,8 @@ def show_merchant(profile):
     _unread = get_unread_count(st.session_state.user.id)
     _notif_label = f"🔔 Notifications ({_unread})" if _unread > 0 else "🔔 Notifications"
 
-    tab_browse, tab_matches, tab_orders, tab_place, tab_notif = st.tabs([
-        "📦 Browse", "🤖 Best Matches", "🛒 My Orders", "🛍️ Place Order", _notif_label
+    tab_browse, tab_matches, tab_orders, tab_agreements, tab_place, tab_notif = st.tabs([
+        "📦 Browse", "🤖 Best Matches", "🛒 My Orders", "📑 Agreements", "🛍️ Place Order", _notif_label
     ])
 
     # ── BROWSE ────────────────────────────────────────────────
@@ -1920,14 +2092,14 @@ def show_merchant(profile):
                             except Exception:
                                 prod_profile = {}
                             render_agreement_terms_inline(o, prod, prod_profile, profile, f'my_{o["id"]}')
-                            if st.button("📄 Download Agreement PDF", key=f'view_agr_pdf_{o["id"]}', use_container_width=True):
-                                delivery_str = datetime.date.today()
-                                payment_str  = "Bank Transfer"
-                                if o.get("agreement_delivery_date"):
-                                    try: delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
-                                    except Exception: pass
-                                if o.get("agreement_payment_method"):
-                                    payment_str = o["agreement_payment_method"]
+                            delivery_str = datetime.date.today()
+                            payment_str  = "Bank Transfer"
+                            if o.get("agreement_delivery_date"):
+                                try: delivery_str = datetime.date.fromisoformat(o["agreement_delivery_date"])
+                                except Exception: pass
+                            if o.get("agreement_payment_method"):
+                                payment_str = o["agreement_payment_method"]
+                            try:
                                 pdf_bytes = generate_agreement_pdf(
                                     producer_name=prod_profile.get("full_name","Producer"),
                                     producer_phone=prod_profile.get("phone",""),
@@ -1944,9 +2116,10 @@ def show_merchant(profile):
                                     agreement_id=str(o["id"]),
                                     producer_confirmed=prod_confirmed, merchant_confirmed=merch_confirmed,
                                 )
-                                st.session_state.agreement_preview_pdf = pdf_bytes
-                                st.session_state.agreement_preview_ref = str(o["id"])
-                                st.rerun()
+                                st.markdown(download_pdf_link(pdf_bytes, f'Agreement-{str(o["id"])[:8].upper()}.pdf',
+                                    "📥 Download Agreement PDF"), unsafe_allow_html=True)
+                            except Exception as pdf_err:
+                                st.error(f"PDF generation failed: {pdf_err}")
 
                         can_update = o["status"] not in ("cancelled","delivered") and (is_regular_order or both_confirmed)
                         if can_update:
@@ -1977,6 +2150,10 @@ def show_merchant(profile):
                                     except Exception as e:
                                         st.error(f"Error updating order: {e}")
 
+
+    # ── AGREEMENTS ────────────────────────────────────────────
+    with tab_agreements:
+        render_agreements_tab(st.session_state.user.id, profile, "merchant")
 
     # ── PLACE ORDER / PREFERENCES ─────────────────────────────
     with tab_place:
