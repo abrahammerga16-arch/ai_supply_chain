@@ -642,7 +642,7 @@ def render_sidebar():
             return profile, role
 
 # ════════════════════════════════════════════════════════════
-# LANDING / AUTH PAGE
+# LANDING / AUTH PAGE 
 # ════════════════════════════════════════════════════════════
 def show_landing():
     st.markdown("""
@@ -651,278 +651,259 @@ def show_landing():
 [data-testid="stSidebar"]        { display: none; }
 [data-testid="collapsedControl"] { display: none; }
 #MainMenu, footer, header        { visibility: hidden; }
-        /* ── Design tokens ── */
-         :root {
-             --forest:   #1B4332;
-             --leaf:     #2D6A4F;
-             --canopy:   #40916C;
-             --sprout:   #74C69D;
-             --wheat:    #D4A017;
-             --gold:     #F4C430;
-             --cream:    #FBF7EE;
-             --charcoal: #1C1C1E;
-             --mist:     #F0F4F1;
-         }
-         /* ── Global page background ── */
-         .stApp { background: var(--cream) !important; }
-         [data-testid="stAppViewContainer"] > .main { background: var(--cream) !important; }
-         /* ── Hero banner ── */
-         .hero-wrap {
-             background: linear-gradient(135deg, var(--forest) 0%, var(--leaf) 55%, var(--canopy) 100%);
-             border-radius: 20px;
-             padding: 52px 48px 44px;
-             margin-bottom: 36px;
-             position: relative;
-             overflow: hidden;
-         }
-         .hero-wrap::before {
-             content: "";
-             position: absolute;
-             inset: 0;
-             background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-         }
-         .hero-eyebrow {
-             font-size: 11px;
-             font-weight: 700;
-             letter-spacing: 3px;
-             text-transform: uppercase;
-             color: var(--gold);
-             margin-bottom: 14px;
-             font-family: 'Inter', sans-serif;
-         }
-         .hero-title {
-             font-size: clamp(28px, 4vw, 46px);
-             font-weight: 800;
-             color: #ffffff;
-             line-height: 1.15;
-             margin: 0 0 16px;
-             font-family: 'Georgia', serif;
-         }
-         .hero-title span { color: var(--gold); }
-         .hero-sub {
-             font-size: 15px;
-             color: rgba(255,255,255,0.82);
-             line-height: 1.7;
-             max-width: 560px;
-             margin: 0 0 28px;
-             font-family: 'Inter', sans-serif;
-         }
-         .hero-badges { display: flex; gap: 10px; flex-wrap: wrap; }
-         .badge {
-             background: rgba(255,255,255,0.12);
-             border: 1px solid rgba(255,255,255,0.22);
-             color: #fff;
-             padding: 5px 14px;
-             border-radius: 20px;
-             font-size: 12px;
-             font-weight: 500;
-             backdrop-filter: blur(4px);
-         }
-         .badge-gold {
-             background: var(--wheat);
-             border-color: var(--gold);
-             color: var(--forest);
-             font-weight: 700;
-         }
-         /* ── Stats strip ── */
-         .stats-strip {
-             display: grid;
-             grid-template-columns: repeat(3, 1fr);
-             gap: 16px;
-             margin-bottom: 32px;
-         }
-         .stat-card {
-             background: #fff;
-             border: 1px solid #e8ede9;
-             border-radius: 14px;
-             padding: 22px 20px;
-             text-align: center;
-             box-shadow: 0 2px 8px rgba(27,67,50,0.06);
-             transition: transform 0.15s ease, box-shadow 0.15s ease;
-         }
-         .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(27,67,50,0.12); }
-         .stat-num {
-             font-size: 28px;
-             font-weight: 800;
-             color: var(--forest);
-             font-family: 'Georgia', serif;
-             display: block;
-         }
-         .stat-label {
-             font-size: 12px;
-             color: #6b7c6e;
-             font-weight: 500;
-             text-transform: uppercase;
-             letter-spacing: 1px;
-             margin-top: 4px;
-             display: block;
-         }
-         /* ── Role cards ── */
-         .roles-row {
-             display: grid;
-             grid-template-columns: repeat(3, 1fr);
-             gap: 14px;
-             margin-bottom: 36px;
-         }
-         .role-card {
-             background: #fff;
-             border: 2px solid #e0e9e2;
-             border-radius: 14px;
-             padding: 22px 18px 18px;
-             transition: border-color 0.2s, transform 0.15s;
-         }
-         .role-card:hover { border-color: var(--canopy); transform: translateY(-3px); }
-         .role-icon  { font-size: 28px; margin-bottom: 10px; display: block; }
-         .role-name  { font-size: 14px; font-weight: 700; color: var(--forest); margin-bottom: 5px; font-family: 'Inter', sans-serif; }
-         .role-desc  { font-size: 12px; color: #6b7c6e; line-height: 1.6; }
-         /* ── Auth panel ── */
-         .auth-panel {
-             background: #fff;
-             border: 1px solid #dde8de;
-             border-radius: 20px;
-             padding: 32px 30px 28px;
-             box-shadow: 0 4px 24px rgba(27,67,50,0.08);
-         }
-         .auth-heading {
-             font-size: 20px;
-             font-weight: 700;
-             color: var(--forest);
-             font-family: 'Georgia', serif;
-             margin-bottom: 4px;
-         }
-         .auth-sub {
-             font-size: 13px;
-             color: #7a8c7c;
-             margin-bottom: 24px;
-         }
-         .divider-text {
-             text-align: center;
-             color: #aabba1;
-             font-size: 12px;
-             letter-spacing: 1px;
-             margin: 8px 0;
-             position: relative;
-         }
-         .divider-text::before, .divider-text::after {
-             content: "";
-             position: absolute;
-             top: 50%;
-             width: 38%;
-             height: 1px;
-             background: #dde8de;
-         }
-         .divider-text::before { left: 0; }
-         .divider-text::after  { right: 0; }
-         /* ── Streamlit widget overrides ── */
-         .stTextInput > label, .stSelectbox > label { color: var(--forest) !important; font-weight: 600 !important; font-size: 13px !important; }
-         .stTextInput > div > div > input {
-             border: 1.5px solid #c8d9c9 !important;
-             border-radius: 10px !important;
-             background: #ffffff !important;
-             color: #1C1C1E !important;
-         }
-         .stTextInput > div > div > input::placeholder {
-             color: #9aab9c !important;
-             opacity: 1 !important;
-         }
-         .stTextInput > div > div > input:focus {
-             border-color: var(--canopy) !important;
-             box-shadow: 0 0 0 3px rgba(64,145,108,0.15) !important;
-             color: #1C1C1E !important;
-         }
-         [data-testid="stTabs"] [data-baseweb="tab-list"] {
-             gap: 0;
-             background: var(--mist);
-             border-radius: 10px;
-             padding: 4px;
-             margin-bottom: 20px;
-         }
-         [data-testid="stTabs"] [data-baseweb="tab"] {
-             border-radius: 8px !important;
-             font-weight: 600 !important;
-             font-size: 13px !important;
-             color: #5a7060 !important;
-         }
-         [data-testid="stTabs"] [aria-selected="true"] {
-             background: var(--forest) !important;
-             color: #fff !important;
-         }
-         .stButton > button[kind="primary"] {
-             background: linear-gradient(135deg, var(--forest), var(--canopy)) !important;
-             border: none !important;
-             border-radius: 10px !important;
-             font-weight: 700 !important;
-             letter-spacing: 0.5px !important;
-             height: 44px !important;
-             font-size: 14px !important;
-             transition: opacity 0.15s !important;
-         }
-         .stButton > button[kind="primary"]:hover { opacity: 0.88 !important; }
-         /* ── Footer strip ── */
-         .landing-footer {
-             text-align: center;
-             font-size: 11px;
-             color: #9aab9c;
-             padding: 24px 0 8px;
-             letter-spacing: 0.5px;
-         }
-         .landing-footer a { color: var(--canopy); text-decoration: none; }
-     </style>
-     <!-- ══ HERO ══ -->
-     <div class="hero-wrap">
-         <p class="hero-eyebrow">🌍 Wolaita Sodo University · Department of ECE</p>
-         <h1 class="hero-title">Ethiopian <span>AI Supply Chain</span><br>Platform</h1>
-         <p class="hero-sub">
-             Connecting smallholder farmers, processing hubs, and consumers
-             through machine-learning–powered matching, real-time price intelligence,
-             and fraud-resistant trade agreements.
-         </p>
-         <div class="hero-badges">
-             <span class="badge badge-gold">⚡ AI Price Engine</span>
-             <span class="badge">🤝 Smart Matchmaking</span>
-             <span class="badge">🛡️ Fraud Detection</span>
-             <span class="badge">📈 Demand Forecasting</span>
-         </div>
-     </div>
-     <!-- ══ STATS ══ -->
-     <div class="stats-strip">
-         <div class="stat-card">
-             <span class="stat-num">13+</span>
-             <span class="stat-label">Crop Categories</span>
-         </div>
-         <div class="stat-card">
-             <span class="stat-num">11</span>
-             <span class="stat-label">Ethiopian Regions</span>
-         </div>
-         <div class="stat-card">
-             <span class="stat-num">3</span>
-             <span class="stat-label">AI Engines Active</span>
-         </div>
-     </div>
-     <!-- ══ ROLE CARDS ══ -->
-     <div class="roles-row">
-         <div class="role-card">
-             <span class="role-icon">🚜</span>
-             <div class="role-name">Producers</div>
-             <div class="role-desc">List crops, get AI price recommendations, and accept purchase contracts directly from merchants.</div>
-         </div>
-         <div class="role-card">
-             <span class="role-icon">🏬</span>
-             <div class="role-name">Merchants</div>
-             <div class="role-desc">Source verified produce via AI matchmaking, run demand forecasts, and manage bulk procurement.</div>
-         </div>
-         <div class="role-card">
-             <span class="role-icon">🛒</span>
-             <div class="role-name">Customers</div>
-             <div class="role-desc">Browse certified commodities and order directly from verified farmers at fair market prices.</div>
-         </div>
-     </div>
- """, unsafe_allow_html=True)
-    # ── Auth panel rendered inside styled wrapper ──
+
+/* ── Design tokens ── */
+:root {
+    --forest:   #1B4332;
+    --leaf:     #2D6A4F;
+    --canopy:   #40916C;
+    --sprout:   #74C69D;
+    --wheat:    #D4A017;
+    --gold:     #F4C430;
+    --cream:    #FBF7EE;
+    --charcoal: #1C1C1E;
+    --mist:     #F0F4F1;
+}
+
+/* ── Global page background ── */
+.stApp { background: var(--cream) !important; }
+[data-testid="stAppViewContainer"] > .main { background: var(--cream) !important; }
+
+/* ── Hero banner ── */
+.hero-wrap {
+    background: linear-gradient(135deg, var(--forest) 0%, var(--leaf) 55%, var(--canopy) 100%);
+    border-radius: 20px;
+    padding: 52px 48px 44px;
+    margin-bottom: 36px;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 14px;
+    font-family: 'Inter', sans-serif;
+}
+
+.hero-title {
+    font-size: clamp(28px, 4vw, 46px);
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.15;
+    margin: 0 0 16px;
+    font-family: 'Georgia', serif;
+}
+
+.hero-title span { color: var(--gold); }
+
+.hero-sub {
+    font-size: 15px;
+    color: rgba(255,255,255,0.82);
+    line-height: 1.7;
+    max-width: 560px;
+    margin: 0 0 28px;
+    font-family: 'Inter', sans-serif;
+}
+
+.hero-badges { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.badge {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    backdrop-filter: blur(4px);
+}
+
+.badge-gold {
+    background: var(--wheat);
+    border-color: var(--gold);
+    color: var(--forest);
+    font-weight: 700;
+}
+
+/* ── Stats strip ── */
+.stats-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.stat-card {
+    background: #fff;
+    border: 1px solid #e8ede9;
+    border-radius: 14px;
+    padding: 22px 20px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(27,67,50,0.06);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(27,67,50,0.12); }
+
+.stat-num {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--forest);
+    font-family: 'Georgia', serif;
+    display: block;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #6b7c6e;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+    display: block;
+}
+
+/* ── Role cards ── */
+.roles-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 36px;
+}
+
+.role-card {
+    background: #fff;
+    border: 2px solid #e0e9e2;
+    border-radius: 14px;
+    padding: 22px 18px 18px;
+    transition: border-color 0.2s, transform 0.15s;
+}
+
+.role-card:hover { border-color: var(--canopy); transform: translateY(-3px); }
+
+.role-icon  { font-size: 28px; margin-bottom: 10px; display: block; }
+.role-name  { font-size: 14px; font-weight: 700; color: var(--forest); margin-bottom: 5px; font-family: 'Inter', sans-serif; }
+.role-desc  { font-size: 12px; color: #6b7c6e; line-height: 1.6; }
+
+/* ── Auth panel ── */
+.auth-panel {
+    background: #fff;
+    border: 1px solid #dde8de;
+    border-radius: 20px;
+    padding: 32px 30px 28px;
+    box-shadow: 0 4px 24px rgba(27,67,50,0.08);
+}
+
+.auth-heading {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--forest);
+    font-family: 'Georgia', serif;
+    margin-bottom: 4px;
+}
+
+.auth-sub {
+    font-size: 13px;
+    color: #7a8c7c;
+    margin-bottom: 24px;
+}
+
+/* ── Streamlit widget overrides ── */
+.stTextInput > label, .stSelectbox > label { color: var(--forest) !important; font-weight: 600 !important; font-size: 13px !important; }
+.stTextInput > div > div > input {
+    border: 1.5px solid #c8d9c9 !important;
+    border-radius: 10px !important;
+    background: #ffffff !important;
+    color: #1C1C1E !important;
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--forest), var(--canopy)) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    height: 44px !important;
+    font-size: 14px !important;
+    transition: opacity 0.15s !important;
+}
+
+.stButton > button[kind="primary"]:hover { opacity: 0.88 !important; }
+
+/* ── Footer strip ── */
+.landing-footer {
+    text-align: center;
+    font-size: 11px;
+    color: #9aab9c;
+    padding: 24px 0 8px;
+    letter-spacing: 0.5px;
+}
+</style>
+
+<!-- ══ HERO ═ -->
+<div class="hero-wrap">
+    <p class="hero-eyebrow">🌍 Wolaita Sodo University · Department of ECE</p>
+    <h1 class="hero-title">Ethiopian <span>AI Supply Chain</span><br>Platform</h1>
+    <p class="hero-sub">
+        Connecting smallholder farmers, processing hubs, and consumers
+        through machine-learning–powered matching, real-time price intelligence,
+        and fraud-resistant trade agreements.
+    </p>
+    <div class="hero-badges">
+        <span class="badge badge-gold">⚡ AI Price Engine</span>
+        <span class="badge">🤝 Smart Matchmaking</span>
+        <span class="badge">🛡️ Fraud Detection</span>
+        <span class="badge">📈 Demand Forecasting</span>
+    </div>
+</div>
+
+<!-- ══ STATS ═ -->
+<div class="stats-strip">
+    <div class="stat-card">
+        <span class="stat-num">13+</span>
+        <span class="stat-label">Crop Categories</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-num">11</span>
+        <span class="stat-label">Ethiopian Regions</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-num">3</span>
+        <span class="stat-label">AI Engines Active</span>
+    </div>
+</div>
+
+<!-- ══ ROLE CARDS ══ -->
+<div class="roles-row">
+    <div class="role-card">
+        <span class="role-icon">🚜</span>
+        <div class="role-name">Producers</div>
+        <div class="role-desc">List crops, get AI price recommendations, and accept purchase contracts directly from merchants.</div>
+    </div>
+    <div class="role-card">
+        <span class="role-icon">🏬</span>
+        <div class="role-name">Merchants</div>
+        <div class="role-desc">Source verified produce via AI matchmaking, run demand forecasts, and manage bulk procurement.</div>
+    </div>
+    <div class="role-card">
+        <span class="role-icon">🛒</span>
+        <div class="role-name">Customers</div>
+        <div class="role-desc">Browse certified commodities and order directly from verified farmers at fair market prices.</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Auth panel ──
     st.markdown('<div class="auth-panel">', unsafe_allow_html=True)
     st.markdown('<div class="auth-heading">Access Your Account</div>', unsafe_allow_html=True)
     st.markdown('<div class="auth-sub">Sign in to your dashboard or register a new entity below.</div>', unsafe_allow_html=True)
+    
     tab_login, tab_register = st.tabs(["🔐  Sign In", "📝  Register"])
+    
     with tab_login:
         email    = st.text_input("Email Address", key="login_email", placeholder="you@example.com")
         password = st.text_input("Password", type="password", key="login_password", placeholder="••••••••")
@@ -936,10 +917,11 @@ def show_landing():
                     st.rerun()
                 else:
                     st.error(msg)
+    
     with tab_register:
-        reg_name     = st.text_input("Full Name",        key="reg_name",     placeholder="Abebe Girma")
-        reg_email    = st.text_input("Email Address",    key="reg_email",    placeholder="abebe@example.com")
-        reg_password = st.text_input("Password",         type="password",    key="reg_password", placeholder="Min. 8 characters")
+        reg_name     = st.text_input("Full Name", key="reg_name", placeholder="Abebe Girma")
+        reg_email    = st.text_input("Email Address", key="reg_email", placeholder="abebe@example.com")
+        reg_password = st.text_input("Password", type="password", key="reg_password", placeholder="Min. 8 characters")
         col_r, col_reg = st.columns(2)
         with col_r:
             reg_role   = st.selectbox("I am a…", ["producer", "merchant", "customer"], key="reg_role")
@@ -957,13 +939,16 @@ def show_landing():
                     st.info("Account created — please go to Sign In to continue.")
                 else:
                     st.error(msg)
+    
     st.markdown('</div>', unsafe_allow_html=True)
+    
     st.markdown("""
-     <div class="landing-footer">
-         Ethiopian AI Supply Chain Platform &nbsp;·&nbsp; Wolaita Sodo University, Dept. of ECE &nbsp;·&nbsp;
-         Built with Streamlit + Supabase
-     </div>
- """, unsafe_allow_html=True)
+    <div class="landing-footer">
+        Ethiopian AI Supply Chain Platform &nbsp;·&nbsp; Wolaita Sodo University, Dept. of ECE &nbsp;·&nbsp;
+        Built with Streamlit + Supabase
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ════════════════════════════════════════════════════════════
 # ROLE PAGES — stubs (built step by step)
