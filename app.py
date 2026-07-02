@@ -1713,12 +1713,11 @@ def show_merchant(profile):
                                 if st.button("💾 Save Changes", key=f'upd_save_{o["id"]}', use_container_width=True):
                                     try:
                                         supabase.table("orders").update({
-                                            "quantity_ordered": new_qty,
-                                            "total_price_birr": new_total,
-                                            "notes": new_notes, 
-                                            "status": new_status,
-                                            }) # <- Added the missing ')' here
-                                    except Exception as e:
+                                             "quantity_ordered": new_qty,
+                                             "total_price_birr": new_total,
+                                             "notes": new_notes, 
+                                             "status": new_status,}) # <- Added the missing ')' here
+                                     except Exception as e:
                                         st.error(f"Error updating order: {e}")
         
         
