@@ -48,11 +48,11 @@ SECTORS  = [ "Agriculture",  "Manufacturing",  "Handicrafts",  "Livestock",  "Fo
 UNITS    = [ "quintal",  "kg",  "piece",  "head",  "unit",  "meter",  "service" ]
 GRADES   = [ "A",  "B",  "C" ]
 SESSION_KEYS = [
-    "user",  "profile",  "edit_product_id",  "show_pref_form",
-    "agreement_product_id",  "agreement_merchant",
-    "agreement_pdf",  "agreement_ref",  "agreement_merchant_name",
-    "agreement_pending_order_id",  "agreement_preview_pdf",
-    "agreement_preview_ref",
+ "user ",  "profile ",  "edit_product_id ",  "show_pref_form ",
+ "agreement_product_id ",  "agreement_merchant ",
+ "agreement_pdf ",  "agreement_ref ",  "agreement_merchant_name ",
+ "agreement_pending_order_id ",  "agreement_preview_pdf ",
+ "agreement_preview_ref ", "admin_viewing_user",
 ]
 AGREEMENT_TERMS = [
     ( "Quality Assurance",
@@ -2562,8 +2562,250 @@ def show_customer(profile):
     st.info("Customer dashboard coming soon.")
 
 def show_admin(profile):
-    st.title("🛡️ Admin Panel")
-    st.info("Admin panel coming soon.")
+    st.title("️ Admin Panel")
+    st.caption("System Administration & User Management")
+    st.divider()
+    
+    # Initialize admin viewing state
+    if "admin_viewing_user" not in st.session_state:
+        st.session_state.admin_viewing_user = None
+
+    # Admin tabs
+    tab_overview, tab_users, tab_verify, tab_db, tab_products, tab_orders = st.tabs([
+        "📊 Overview", " All Users", "✅ Verify Users", 
+        "🗄️ Database", "📦 Products", "📋 Orders"
+    ])
+    
+    # ── TAB 1: OVERVIEW ───────────────────────────────────────
+    with tab_overview:
+        st.subheader(" System Overview")
+        try:
+            total_users = supabase.table("profiles").select("*", count="exact").execute().count or 0
+            total_producers = supabase.table("profiles").select("*", count="exact").eq("role", "producer").execute().count or 0
+            total_merchants = supabase.table("profiles").select("*", count="exact").eq("role", "merchant").execute().count or 0
+            total_customers = supabase.table("profiles").select("*", count="exact").eq("role", "customer").execute().count or 0
+            total_products = supabase.table("products").select("*", count="exact").execute().count or 0
+            total_orders = supabase.table("orders").select("*", count="exact").execute().count or 0
+            
+            # Check if is_verified column exists, otherwise default to 0
+            try:
+                pending_verifications = supabase.table("profiles").select("*", count="exact").eq("is_verified", False).execute().count or 0
+            except:
+                pending_verifications = 0
+        except Exception as e:
+            st.error(f"Could not load statistics: {e}")
+            total_users = total_producers = total_merchants = total_customers = 0
+            total_products = total_orders = pending_verifications = 0
+        
+        m1, m2, m3, m4 = st.columns(4)
+        with m1: st.metric("Total Users", total_users, delta=f"{pending_verifications} pending")
+        with m2: st.metric("Total Products", total_products)
+        with m3: st.metric("Total Orders", total_orders)
+        with m4: st.metric("Active Merchants", total_merchants)
+        
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        with col1: st.info(f"🚜 **Producers:** {total_producers}")
+        with col2: st.success(f" **Merchants:** {total_merchants}")
+        with col3: st.warning(f"🛒 **Customers:** {total_customers}")
+
+    # ─ TAB 2: ALL USERS ───────────────────────────────────────
+    with tab_users:
+        st.subheader("👥 User Management")
+        st.caption("View, edit, and manage all registered users")
+        
+        fcol1, fcol2, fcol3 = st.columns(3)
+        with fcol1: filter_role = st.selectbox("Filter by Role", ["All", "producer", "merchant", "customer", "admin"], key="admin_filter_role")
+        with fcol2: filter_region = st.selectbox("Filter by Region", ["All"] + REGIONS, key="admin_filter_region")
+        with fcol3: search_user = st.text_input("🔍 Search users", key="admin_search_user")
+        
+        try:
+            query = supabase.table("profiles").select("*")
+            if filter_role != "All": query = query.eq("role", filter_role)
+            if filter_region != "All": query = query.eq("region", filter_region)
+            users = query.order("created_at", desc=True).execute().data or []
+            if search_user:
+                kw = search_user.lower()
+                users = [u for u in users if kw in u.get("full_name", "").lower() or kw in u.get("email", "").lower()]
+        except Exception as e:
+            st.error(f"Could not load users: {e}")
+            users = []
+        
+        st.markdown(f"**{len(users)} user(s) found**")
+        
+        # If viewing a specific user
+        if st.session_state.admin_viewing_user:
+            viewing_id = st.session_state.admin_viewing_user
+            viewed_user = next((u for u in users if u["id"] == viewing_id), None)
+            
+            if viewed_user:
+                st.divider()
+                st.subheader(f"👁️ Edit User: {viewed_user.get('full_name')}")
+                with st.form(f"edit_user_{viewed_user['id']}"):
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        e_full_name = st.text_input("Full Name", value=viewed_user.get("full_name", ""))
+                        e_email = st.text_input("Email", value=viewed_user.get("email", ""))
+                        e_role = st.selectbox("Role", ["producer", "merchant", "customer", "admin"], index=["producer", "merchant", "customer", "admin"].index(viewed_user.get("role", "customer")))
+                    with ec2:
+                        e_region = st.selectbox("Region", REGIONS, index=REGIONS.index(viewed_user.get("region", REGIONS[0])) if viewed_user.get("region") in REGIONS else 0)
+                        e_phone = st.text_input("Phone", value=viewed_user.get("phone", ""))
+                        try:
+                            e_verified = st.checkbox("Verified", value=viewed_user.get("is_verified", False))
+                        except:
+                            e_verified = False
+                    
+                    submitted = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+                    if submitted:
+                        try:
+                            update_payload = {"full_name": e_full_name, "email": e_email, "role": e_role, "region": e_region, "phone": e_phone}
+                            try: update_payload["is_verified"] = e_verified
+                            except: pass
+                            supabase.table("profiles").update(update_payload).eq("id", viewed_user["id"]).execute()
+                            st.success("User updated successfully!")
+                            st.session_state.admin_viewing_user = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Update failed: {e}")
+                
+                if st.button("✖ Close View", key="close_user_view"):
+                    st.session_state.admin_viewing_user = None
+                    st.rerun()
+                return # Stop rendering the list while viewing
+
+        # Display users list
+        for user in users:
+            try: verified = user.get("is_verified", False)
+            except: verified = False
+            role_badge = {"producer": "🚜", "merchant": "", "customer": "🛒", "admin": "🛡️"}.get(user.get("role"), "⚪")
+            status_icon = "✅" if verified else "⏳"
+            
+            with st.container(border=True):
+                c1, c2, c3, c4 = st.columns([4, 2, 2, 2])
+                with c1:
+                    st.markdown(f"**{role_badge} {user.get('full_name','Unknown')}** {status_icon}")
+                    st.caption(f"📧 {user.get('email','N/A')}")
+                    st.caption(f" {user.get('region','N/A')} · 📞 {user.get('phone','N/A')}")
+                with c2:
+                    st.metric("Role", user.get("role", "N/A").capitalize())
+                with c3:
+                    if not verified:
+                        if st.button("✅ Verify", key=f"verify_{user['id']}", use_container_width=True):
+                            try:
+                                supabase.table("profiles").update({"is_verified": True}).eq("id", user["id"]).execute()
+                                st.rerun()
+                            except: pass
+                    else: st.success("Verified")
+                with c4:
+                    if st.button("👁️ View/Edit", key=f"view_{user['id']}", use_container_width=True):
+                        st.session_state.admin_viewing_user = user["id"]
+                        st.rerun()
+                    if st.button("🗑️ Delete", key=f"del_{user['id']}", use_container_width=True):
+                        if st.warning(f"Delete {user.get('full_name')}?", icon="⚠️"):
+                            try:
+                                supabase.table("products").delete().eq("producer_id", user["id"]).execute()
+                                supabase.table("orders").delete().eq("buyer_id", user["id"]).execute()
+                                supabase.table("profiles").delete().eq("id", user["id"]).execute()
+                                st.success("User deleted!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Delete failed: {e}")
+
+    # ── TAB 3: VERIFY USERS ───────────────────────────────────────
+    with tab_verify:
+        st.subheader("✅ User Verification Queue")
+        try:
+            pending_users = supabase.table("profiles").select("*").eq("is_verified", False).order("created_at", asc=True).execute().data or []
+        except:
+            pending_users = []
+            st.info("No pending verifications (or 'is_verified' column not found).")
+        
+        if pending_users:
+            st.warning(f"⏳ {len(pending_users)} user(s) awaiting verification")
+            for user in pending_users:
+                with st.container(border=True):
+                    c1, c2 = st.columns([3, 1])
+                    with c1:
+                        st.markdown(f"**{user.get('full_name','Unknown')}**")
+                        st.caption(f" {user.get('email','N/A')} ·  {user.get('region','N/A')}")
+                        st.caption(f"Role: **{user.get('role','N/A').capitalize()}**")
+                    with c2:
+                        if st.button("✅ Verify", key=f"vp_{user['id']}", type="primary", use_container_width=True):
+                            supabase.table("profiles").update({"is_verified": True}).eq("id", user["id"]).execute()
+                            st.rerun()
+
+    # ── TAB 4: DATABASE ───────────────────────────────────────
+    with tab_db:
+        st.subheader("🗄️ Database Management")
+        tables = ["profiles", "products", "orders", "notifications", "merchant_preferences"]
+        selected_table = st.selectbox("Select Table", tables, key="admin_db_table")
+        
+        try:
+            data = supabase.table(selected_table).select("*").execute().data or []
+            st.markdown(f"**{len(data)} record(s) in `{selected_table}`**")
+            if data:
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(label="📥 Download as CSV", data=csv, file_name=f"{selected_table}_export.csv", mime="text/csv")
+        except Exception as e:
+            st.error(f"Could not load table: {e}")
+
+    # ── TAB 5: PRODUCTS ───────────────────────────────────────
+    with tab_products:
+        st.subheader("📦 Products Management")
+        try:
+            products = supabase.table("products").select("*, profiles(full_name, email)").order("created_at", desc=True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            products = []
+        
+        for p in products:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([4, 2, 2])
+                with c1:
+                    avail_badge = "🟢" if p.get("is_available") else "🔴"
+                    st.markdown(f"**{avail_badge} {p.get('product_name','Unknown')}**")
+                    st.caption(f"📍 {p.get('region','N/A')} · {p.get('sector','N/A')}")
+                    seller = p.get("profiles")
+                    if seller: st.caption(f"👤 Seller: {seller.get('full_name','Unknown')}")
+                with c2:
+                    st.metric("Price", f"{p.get('price_birr',0):,.0f} Birr")
+                    st.caption(f"Qty: {p.get('quantity',0)} {p.get('unit','')}")
+                with c3:
+                    if st.button("🗑️ Delete", key=f"admin_del_prod_{p['id']}", use_container_width=True):
+                        supabase.table("products").delete().eq("id", p["id"]).execute()
+                        st.rerun()
+
+    # ── TAB 6: ORDERS ───────────────────────────────────────
+    with tab_orders:
+        st.subheader("📋 Orders Management")
+        try:
+            orders = supabase.table("orders").select("*, products(product_name), profiles!orders_buyer_id_fkey(full_name)").order("created_at", desc=True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load orders: {e}")
+            orders = []
+        
+        status_filter = st.selectbox("Filter by Status", ["All", "pending", "confirmed", "delivered", "cancelled"], key="admin_order_filter")
+        filtered_orders = orders if status_filter == "All" else [o for o in orders if o.get("status") == status_filter]
+        
+        for o in filtered_orders:
+            status_icon = {"pending": "🟡", "confirmed": "🟢", "delivered": "✅", "cancelled": "❌"}.get(o.get("status"), "⚪")
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([4, 2, 2])
+                with c1:
+                    st.markdown(f"**{status_icon} Order #{o.get('id','')[:8]}**")
+                    st.caption(f"📦 {o.get('products',{}).get('product_name','Unknown')}")
+                    buyer = o.get('profiles')
+                    if buyer: st.caption(f"👤 Buyer: {buyer.get('full_name','Unknown')}")
+                with c2:
+                    st.metric("Qty", f"{o.get('quantity_ordered',0):,.1f}")
+                    st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+                with c3:
+                    st.caption(f"Status: **{o.get('status','pending').capitalize()}**")
+                    if st.button("️ Delete", key=f"admin_del_order_{o['id']}", use_container_width=True):
+                        supabase.table("orders").delete().eq("id", o["id"]).execute()
+                        st.rerun()
 
 # ════════════════════════════════════════════════════════════
 # MAIN ROUTER
