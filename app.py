@@ -1007,7 +1007,191 @@ def show_landing():
 
 def show_producer(profile):
     st.title(f"🚜 Producer Dashboard")
-    st.info("Producer dashboard coming soon.")
+    st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
+    st.divider()
+
+    tab_products, = st.tabs(["📦 My Products"])
+
+    # ── MY PRODUCTS ───────────────────────────────────────────
+    with tab_products:
+        st.subheader("📦 My Products")
+
+        # ── Load producer's products ──
+        try:
+            my_products = supabase.table("products") \
+                .select("*") \
+                .eq("producer_id", st.session_state.user.id) \
+                .order("created_at", desc=True).execute().data or []
+        except Exception as e:
+            st.error(f"Could not load products: {e}")
+            my_products = []
+
+        # ── Summary metrics ──
+        if my_products:
+            total_val = sum(p["price_birr"] * p["quantity"] for p in my_products)
+            active    = sum(1 for p in my_products if p.get("is_available"))
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Listed", len(my_products))
+            m2.metric("Active / Available", active)
+            m3.metric("Total Est. Value", f"{total_val:,.0f} Birr")
+            st.divider()
+
+        # ── ADD NEW PRODUCT form ──
+        with st.expander("➕ Add New Product", expanded=not bool(my_products)):
+            with st.form("add_product_form", clear_on_submit=True):
+                st.markdown("#### New Product Details")
+                c1, c2 = st.columns(2)
+                with c1:
+                    new_name    = st.text_input("Product Name *", placeholder="e.g. Teff, Coffee, Honey")
+                    new_sector  = st.selectbox("Sector *", SECTORS)
+                    new_grade   = st.selectbox("Quality Grade *", GRADES)
+                    new_region  = st.selectbox("Region *", REGIONS,
+                                               index=REGIONS.index(profile.get("region", REGIONS[0]))
+                                               if profile.get("region") in REGIONS else 0)
+                with c2:
+                    new_qty     = st.number_input("Quantity *", min_value=0.1, value=1.0, step=1.0)
+                    new_unit    = st.selectbox("Unit *", UNITS)
+                    new_price   = st.number_input("Price per Unit (Birr) *", min_value=1.0, value=100.0, step=10.0)
+                    new_avail   = st.checkbox("Available for sale", value=True)
+                new_desc = st.text_area("Description (optional)", placeholder="Describe quality, harvest date, storage…", height=80)
+
+                # AI price suggestion
+                st.caption("💡 Use AI to suggest a price:")
+                ai_col1, ai_col2 = st.columns([3, 1])
+                with ai_col1:
+                    st.caption(f"Sector: **{new_sector}** · Region: **{new_region}** · Grade: **{new_grade}**")
+                with ai_col2:
+                    get_ai_price = st.form_submit_button("🤖 AI Price", use_container_width=True)
+
+                submitted = st.form_submit_button("✅ Add Product", type="primary", use_container_width=True)
+
+            # Handle AI price (outside form so it doesn't block)
+            if get_ai_price:
+                try:
+                    ai = recommend_price(
+                        sector=new_sector, product=new_name or "unknown",
+                        region=new_region, quality_grade=new_grade,
+                        quantity=new_qty
+                    )
+                    suggested = ai.get("recommended_price_birr") or ai.get("price") or 0
+                    st.info(f"🤖 AI suggested price: **{suggested:,.0f} Birr / {new_unit}**")
+                except Exception as e:
+                    st.warning(f"AI price unavailable: {e}")
+
+            if submitted:
+                if not new_name.strip():
+                    st.error("Product name is required.")
+                else:
+                    try:
+                        supabase.table("products").insert({
+                            "producer_id":   st.session_state.user.id,
+                            "product_name":  new_name.strip(),
+                            "sector":        new_sector,
+                            "quality_grade": new_grade,
+                            "region":        new_region,
+                            "quantity":      new_qty,
+                            "unit":          new_unit,
+                            "price_birr":    new_price,
+                            "is_available":  new_avail,
+                            "description":   new_desc.strip() or None,
+                        }).execute()
+                        st.success(f"✅ '{new_name}' listed successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to add product: {e}")
+
+        # ── PRODUCT LIST ──
+        if not my_products:
+            st.info("You have no products listed yet. Use the form above to add your first product.")
+        else:
+            st.markdown(f"**{len(my_products)} product(s) listed:**")
+            for p in my_products:
+                avail_badge = "🟢 Available" if p.get("is_available") else "🔴 Unavailable"
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([4, 2, 2])
+
+                    with c1:
+                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                        st.caption(p.get("description") or "No description")
+                        st.caption(f"📍 {p['region']}  ·  {avail_badge}")
+
+                    with c2:
+                        st.metric("Price", f"{p['price_birr']:,.0f} Birr")
+                        st.caption(f"Qty: {p['quantity']} {p['unit']}")
+
+                    with c3:
+                        # Toggle availability
+                        toggle_label = "🔴 Mark Unavailable" if p.get("is_available") else "🟢 Mark Available"
+                        if st.button(toggle_label, key=f"tog_{p['id']}", use_container_width=True):
+                            try:
+                                supabase.table("products").update(
+                                    {"is_available": not p.get("is_available")}
+                                ).eq("id", p["id"]).execute()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed: {e}")
+
+                        # Edit button — sets session state to show edit form
+                        if st.button("✏️ Edit", key=f"edit_btn_{p['id']}", use_container_width=True):
+                            st.session_state.edit_product_id = p["id"]
+                            st.rerun()
+
+                        if st.button("🗑️ Delete", key=f"del_{p['id']}", use_container_width=True):
+                            try:
+                                supabase.table("products").delete().eq("id", p["id"]).execute()
+                                st.success(f"Deleted '{p['product_name']}'.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Delete failed: {e}")
+
+                    # ── Inline edit form ──
+                    if st.session_state.get("edit_product_id") == p["id"]:
+                        st.divider()
+                        st.markdown("##### ✏️ Edit Product")
+                        with st.form(f"edit_form_{p['id']}"):
+                            ec1, ec2 = st.columns(2)
+                            with ec1:
+                                e_name   = st.text_input("Product Name",  value=p["product_name"])
+                                e_sector = st.selectbox("Sector", SECTORS,
+                                                        index=SECTORS.index(p["sector"]) if p["sector"] in SECTORS else 0)
+                                e_grade  = st.selectbox("Quality Grade", GRADES,
+                                                        index=GRADES.index(p["quality_grade"]) if p["quality_grade"] in GRADES else 0)
+                                e_region = st.selectbox("Region", REGIONS,
+                                                        index=REGIONS.index(p["region"]) if p["region"] in REGIONS else 0)
+                            with ec2:
+                                e_qty    = st.number_input("Quantity",  min_value=0.1, value=float(p["quantity"]))
+                                e_unit   = st.selectbox("Unit", UNITS,
+                                                        index=UNITS.index(p["unit"]) if p["unit"] in UNITS else 0)
+                                e_price  = st.number_input("Price (Birr)", min_value=1.0, value=float(p["price_birr"]))
+                                e_avail  = st.checkbox("Available", value=bool(p.get("is_available")))
+                            e_desc = st.text_area("Description", value=p.get("description") or "", height=80)
+                            save_col, cancel_col = st.columns(2)
+                            with save_col:
+                                save = st.form_submit_button("💾 Save Changes", type="primary", use_container_width=True)
+                            with cancel_col:
+                                cancel = st.form_submit_button("✖ Cancel", use_container_width=True)
+
+                        if save:
+                            try:
+                                supabase.table("products").update({
+                                    "product_name":  e_name.strip(),
+                                    "sector":        e_sector,
+                                    "quality_grade": e_grade,
+                                    "region":        e_region,
+                                    "quantity":      e_qty,
+                                    "unit":          e_unit,
+                                    "price_birr":    e_price,
+                                    "is_available":  e_avail,
+                                    "description":   e_desc.strip() or None,
+                                }).eq("id", p["id"]).execute()
+                                st.session_state.edit_product_id = None
+                                st.success("✅ Product updated.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Update failed: {e}")
+                        if cancel:
+                            st.session_state.edit_product_id = None
+                            st.rerun()
 
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
