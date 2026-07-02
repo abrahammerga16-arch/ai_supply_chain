@@ -1,73 +1,131 @@
-"""
-Smart Matching Engine
-Scores compatibility between a producer listing and merchant profiles
-using a trained SVM model to rank the best merchant matches.
-"""
-import joblib
-import pandas as pd
 import os
+import joblib
+import numpy as np
+import pandas as pd
+from pathlib import Path
 
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "matching_model.joblib")
-_bundle = None
+# Global model cache
+_matching_model = None
 
+def load_matching_model():
+    """Load merchant matching model"""
+    global _matching_model
+    
+    if _matching_model is not None:
+        return _matching_model
+    
+    possible_paths = [
+        Path(__file__).parent.parent / "models",
+        Path(__file__).parent / "models",
+        Path("models"),
+    ]
+    
+    model_dir = None
+    for p in possible_paths:
+        if p.exists():
+            model_dir = p
+            break
+    
+    if model_dir is None:
+        raise FileNotFoundError("models directory not found")
+    
+    model_path = model_dir / "matching_model.pkl"
+    try:
+        _matching_model = joblib.load(model_path)
+    except Exception as e:
+        raise ImportError(f"Failed to load matching_model.pkl: {e}")
+    
+    return _matching_model
 
-def _load():
-    global _bundle
-    if _bundle is None:
-        _bundle = joblib.load(_MODEL_PATH)
-    return _bundle
-
-
-def _build_features(listing: dict, merchant: dict) -> dict:
-    """Build the 18 features used during training from a listing and merchant profile."""
-    qmap = {"A": 3, "B": 2, "C": 1, "A or B": 2.5, "Any": 1}
-    total_cost = listing.get("price_birr", 0) * listing.get("quantity", 0)
-
-    return {
-        "same_region":          int(listing.get("region") == merchant.get("region")),
-        "same_sector":          int(listing.get("sector") == merchant.get("preferred_sector")),
-        "same_product":         int(listing.get("product_name") == merchant.get("preferred_product")),
-        "price_fits_budget":    int(total_cost <= merchant.get("max_budget_birr", 0)),
-        "quality_match":        int(
-            qmap.get(listing.get("quality_grade", "C"), 1) >=
-            qmap.get(merchant.get("preferred_quality", "Any"), 1)
-        ),
-        "both_verified":        int(listing.get("is_verified", 1) and merchant.get("is_verified", 1)),
-        "delivery_match":       int(listing.get("delivery_available", 1) and merchant.get("needs_delivery", 0)),
-        "payment_match":        int(merchant.get("payment_method") in ["Mobile Money", "Bank Transfer"]),
-        "producer_rating":      listing.get("producer_rating", 4.0),
-        "merchant_rating":      merchant.get("rating", 4.0),
-        "producer_experience":  listing.get("producer_experience", 3),
-        "merchant_experience":  merchant.get("years_in_business", 3),
-        "producer_tx":          listing.get("producer_tx", 0),
-        "merchant_tx":          merchant.get("total_transactions", 0),
-        "producer_verified":    listing.get("is_verified", 1),
-        "merchant_verified":    merchant.get("is_verified", 1),
-        "producer_return_rate": listing.get("return_rate", 0.05),
-        "merchant_return_rate": merchant.get("return_rate", 0.05),
-    }
-
-
-def rank_merchants(listing: dict, merchant_list: list) -> list:
+def rank_merchants(listing_data, merchant_list):
     """
-    Scores all merchants for compatibility with a listing and returns
-    them sorted by match probability (highest first).
+    Rank merchants based on compatibility with product listing
+    Returns: list of merchants with match_probability and ranking
     """
-    bundle = _load()
-    model        = bundle["model"]
-    scaler       = bundle["scaler"]
-    feature_cols = bundle["feature_cols"]
-
-    results = []
-    for merchant in merchant_list:
-        feats = _build_features(listing, merchant)
-        X = pd.DataFrame([[feats[c] for c in feature_cols]], columns=feature_cols)
-        X_scaled = scaler.transform(X)
-
-        pred  = int(model.predict(X_scaled)[0])
-        proba = float(model.predict_proba(X_scaled)[0][1])
-
-        results.append({**merchant, "is_match": pred, "match_probability": round(proba, 4)})
-
-    results.sort(key=lambda r: r["match_probability"], reverse=True)
-    return results
+    model = load_matching_model()
+    
+    try:
+        ranked_merchants = []
+        
+        for merchant in merchant_list:
+            # Calculate compatibility features
+            sector_match = 1 if listing_data.get('sector') == merchant.get('preferred_sector') else 0
+            region_match = 1 if listing_data.get('region') == merchant.get('region') else 0
+            
+            # Price compatibility
+            total_cost = listing_data.get('price_birr', 0) * listing_data.get('quantity', 1)
+            budget_fit = 1 if total_cost <= merchant.get('max_budget_birr', float('inf')) else 0
+            
+            # Quality match
+            quality_match = 1 if (
+                merchant.get('preferred_quality') == 'Any' or 
+                listing_data.get('quality_grade') == merchant.get('preferred_quality')
+            ) else 0
+            
+            # Create feature vector
+            features = np.array([[
+                sector_match,
+                region_match,
+                budget_fit,
+                quality_match,
+                listing_data.get('price_birr', 0) / 1000,
+                listing_data.get('quantity', 0),
+                merchant.get('rating', 4.0),
+                merchant.get('total_transactions', 0),
+                merchant.get('years_in_business', 1),
+                merchant.get('return_rate', 0.05),
+            ]])
+            
+            # Predict match probability
+            if hasattr(model, 'predict_proba'):
+                proba = model.predict_proba(features)[0]
+                match_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
+            else:
+                match_prob = float(model.predict(features)[0])
+            
+            # Calculate additional scoring factors
+            delivery_bonus = 0.1 if (
+                listing_data.get('delivery_available') and 
+                merchant.get('needs_delivery', False)
+            ) else 0
+            
+            verification_bonus = 0.05 if merchant.get('is_verified', False) else 0
+            
+            final_score = min(1.0, match_prob + delivery_bonus + verification_bonus)
+            
+            ranked_merchants.append({
+                **merchant,
+                "match_probability": final_score,
+                "match_percentage": round(final_score * 100, 1),
+                "sector_match": bool(sector_match),
+                "region_match": bool(region_match),
+                "budget_fit": bool(budget_fit),
+                "recommendation": "Excellent match" if final_score >= 0.7 else "Good match" if final_score >= 0.4 else "Potential match"
+            })
+        
+        # Sort by match probability
+        ranked_merchants.sort(key=lambda x: x['match_probability'], reverse=True)
+        
+        return ranked_merchants
+        
+    except Exception as e:
+        # Fallback: simple rule-based matching
+        ranked_merchants = []
+        for merchant in merchant_list:
+            score = 0.3  # Base score
+            if listing_data.get('sector') == merchant.get('preferred_sector'):
+                score += 0.3
+            if listing_data.get('region') == merchant.get('region'):
+                score += 0.2
+            if listing_data.get('quality_grade') == merchant.get('preferred_quality') or merchant.get('preferred_quality') == 'Any':
+                score += 0.2
+            
+            ranked_merchants.append({
+                **merchant,
+                "match_probability": min(1.0, score),
+                "match_percentage": round(score * 100, 1),
+                "recommendation": "Fallback match"
+            })
+        
+        ranked_merchants.sort(key=lambda x: x['match_probability'], reverse=True)
+        return ranked_merchants
