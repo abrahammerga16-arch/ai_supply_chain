@@ -1,95 +1,104 @@
-"""
-Demand Forecasting Engine
-Uses a trained LSTM model to forecast weekly demand for a product-region
-pair for the next 1–4 weeks, based on 12 weeks of historical data.
-"""
 import os
-import numpy as np
-import pandas as pd
 import joblib
+import numpy as np
+from pathlib import Path
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+# Global model cache
+_demand_model = None
+_demand_meta = None
 
-_META_PATH  = os.path.join(os.path.dirname(__file__), "..", "models", "demand_meta.joblib")
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "demand_model.keras")
-_DATA_PATH  = os.path.join(os.path.dirname(__file__), "..", "data",   "demand_dataset.csv")
+def load_demand_models():
+    """Load demand forecasting models from models directory"""
+    global _demand_model, _demand_meta
+    
+    if _demand_model is not None and _demand_meta is not None:
+        return _demand_model, _demand_meta
+    
+    # Try multiple paths
+    possible_paths = [
+        Path(__file__).parent.parent / "models",
+        Path(__file__).parent / "models",
+        Path("models"),
+    ]
+    
+    model_dir = None
+    for p in possible_paths:
+        if p.exists():
+            model_dir = p
+            break
+    
+    if model_dir is None:
+        raise FileNotFoundError("models directory not found")
+    
+    # Load Keras model
+    try:
+        from tensorflow import keras
+        model_path = model_dir / "demand_model.keras"
+        _demand_model = keras.models.load_model(model_path)
+    except Exception as e:
+        raise ImportError(f"Failed to load demand_model.keras: {e}")
+    
+    # Load metadata (scaler, encoders, etc.)
+    meta_path = model_dir / "demand_meta.pkl"
+    try:
+        _demand_meta = joblib.load(meta_path)
+    except Exception as e:
+        raise ImportError(f"Failed to load demand_meta.pkl: {e}")
+    
+    return _demand_model, _demand_meta
 
-_meta = _model = _df = None
-
-
-def _load():
-    global _meta, _model, _df
-    if _meta is None:
-        import tensorflow as tf
-        _meta  = joblib.load(_META_PATH)
-        _model = tf.keras.models.load_model(_MODEL_PATH)
-        _df    = pd.read_csv(_DATA_PATH)
-        _df["sector_enc"]  = _meta["le_sector"].transform(_df["sector"])
-        _df["product_enc"] = _meta["le_product"].transform(_df["product"])
-        _df["region_enc"]  = _meta["le_region"].transform(_df["region"])
-    return _meta, _model, _df
-
-
-def forecast_demand(product: str, region: str, weeks_ahead: int = 4) -> dict:
+def forecast_demand(sector, product, region, historical_data=None):
     """
-    Forecast demand for `product` in `region` for the next `weeks_ahead` weeks.
-
-    Returns historical (last 8 weeks), forecast (next 1-4 weeks),
-    trend direction, and model accuracy metrics.
+    Forecast demand for a product
+    Returns: dict with predicted_demand, confidence_interval, trend
     """
-    meta, model, df = _load()
-
-    feature_cols = meta["feature_cols"]
-    scaler       = meta["scaler"]
-    target_idx   = meta["target_idx"]
-    seq_len      = meta["sequence_length"]
-
-    # Get the most recent rows for this product-region
-    series = df[(df["product"] == product) & (df["region"] == region)].sort_values("week")
-
-    # Fall back to regional data if product not found
-    if len(series) < seq_len:
-        series = df[df["region"] == region].sort_values("week")
-
-    if len(series) < seq_len:
-        return {"error": f"Not enough history for {product} in {region}"}
-
-    series = series.tail(seq_len + 8)
-
-    # Build scaled input window (12 weeks × 18 features)
-    window_df     = pd.DataFrame(series[feature_cols].values[-seq_len:], columns=feature_cols)
-    window_scaled = scaler.transform(window_df)
-
-    # Predict iteratively: feed each prediction back as the next input
-    forecast_scaled = []
-    current = window_scaled.copy()
-    for _ in range(weeks_ahead):
-        pred = float(model.predict(current[np.newaxis, :, :], verbose=0)[0][0])
-        forecast_scaled.append(pred)
-        next_row = current[-1].copy()
-        next_row[target_idx] = pred
-        current = np.vstack([current[1:], next_row])
-
-    # Inverse transform back to real demand units
-    def to_real(scaled_vals):
-        dummy = pd.DataFrame(np.zeros((len(scaled_vals), len(feature_cols))), columns=feature_cols)
-        dummy.iloc[:, target_idx] = scaled_vals
-        return scaler.inverse_transform(dummy)[:, target_idx]
-
-    forecast = [max(0, int(round(v))) for v in to_real(forecast_scaled)]
-    historical = [max(0, int(round(v))) for v in series["demand_quantity"].values[-8:]]
-
-    # Determine trend from forecast direction
-    mid, last = forecast[len(forecast) // 2], forecast[-1]
-    trend = "up" if last > mid * 1.05 else ("down" if last < mid * 0.95 else "stable")
-
-    return {
-        "product":    product,
-        "region":     region,
-        "weeks":      list(range(1, weeks_ahead + 1)),
-        "forecast":   forecast,
-        "historical": historical,
-        "trend":      trend,
-        "r2":         round(meta["r2"], 4),
-        "rmse":       round(meta["rmse"], 1),
-    }
+    model, meta = load_demand_models()
+    
+    # Prepare input features
+    # Adjust this based on your model's expected input
+    try:
+        # Example: encode categorical variables
+        sector_enc = meta.get('sector_encoder', {}).get(sector, 0)
+        region_enc = meta.get('region_encoder', {}).get(region, 0)
+        
+        # Create feature vector
+        # Adjust dimensions based on your model
+        features = np.array([[
+            sector_enc,
+            region_enc,
+            meta.get('product_map', {}).get(product, 0),
+            # Add other features as needed
+        ]])
+        
+        # Scale features if scaler exists
+        if 'scaler' in meta:
+            features = meta['scaler'].transform(features)
+        
+        # Predict
+        prediction = model.predict(features, verbose=0)
+        predicted_demand = float(prediction[0][0])
+        
+        # Calculate confidence interval (if available)
+        confidence = meta.get('confidence', 0.95)
+        std_error = meta.get('std_error', predicted_demand * 0.1)
+        
+        return {
+            "predicted_demand": max(0, predicted_demand),
+            "confidence_interval": {
+                "lower": max(0, predicted_demand - 1.96 * std_error),
+                "upper": predicted_demand + 1.96 * std_error,
+                "confidence": confidence
+            },
+            "trend": "increasing" if predicted_demand > meta.get('avg_demand', 0) else "stable",
+            "recommendation": f"Stock {max(0, predicted_demand):.0f} units based on AI forecast"
+        }
+        
+    except Exception as e:
+        # Fallback to simple heuristic
+        return {
+            "predicted_demand": 100,  # Default
+            "confidence_interval": {"lower": 80, "upper": 120, "confidence": 0.8},
+            "trend": "unknown",
+            "recommendation": "AI forecast unavailable - using default estimate",
+            "error": str(e)
+        }
