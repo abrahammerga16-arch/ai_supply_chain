@@ -1010,7 +1010,7 @@ def show_producer(profile):
     st.caption(f"Welcome, {profile.get('full_name','Producer')} · {profile.get('region','')}")
     st.divider()
 
-    tab_products, = st.tabs(["📦 My Products"])
+    tab_products, tab_incoming = st.tabs(["📦 My Products", "📬 Incoming Orders"])
 
     # ── MY PRODUCTS ───────────────────────────────────────────
     with tab_products:
@@ -1192,6 +1192,151 @@ def show_producer(profile):
                         if cancel:
                             st.session_state.edit_product_id = None
                             st.rerun()
+
+    # ── INCOMING ORDERS ───────────────────────────────────────
+    with tab_incoming:
+        st.subheader("📬 Incoming Orders")
+        st.caption("Orders placed on your products — confirm, deliver, or cancel them here.")
+
+        try:
+            my_prod_ids = [
+                p["id"] for p in
+                supabase.table("products").select("id")
+                .eq("producer_id", st.session_state.user.id).execute().data or []
+            ]
+        except Exception as e:
+            st.error(f"Could not load your products: {e}")
+            my_prod_ids = []
+
+        if not my_prod_ids:
+            st.info("You have no listed products yet. Add products first to receive orders.")
+        else:
+            try:
+                incoming = supabase.table("orders")                     .select("*, products(product_name, unit, sector, quality_grade, region), profiles(full_name, phone, region)")                     .in_("product_id", my_prod_ids)                     .order("created_at", desc=True).execute().data or []
+            except Exception as e:
+                st.error(f"Could not load orders: {e}")
+                incoming = []
+
+            if not incoming:
+                st.info("No orders received yet.")
+            else:
+                total_rev       = sum(o["total_price_birr"] for o in incoming if o["status"] == "confirmed")
+                pending_count   = sum(1 for o in incoming if o["status"] == "pending")
+                confirmed_count = sum(1 for o in incoming if o["status"] == "confirmed")
+                delivered_count = sum(1 for o in incoming if o["status"] == "delivered")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total Orders",   len(incoming))
+                m2.metric("Pending",        pending_count)
+                m3.metric("Confirmed",      confirmed_count)
+                m4.metric("Delivered",      delivered_count)
+                st.divider()
+
+                status_filter = st.selectbox(
+                    "Filter by Status",
+                    ["All", "pending", "confirmed", "delivered", "cancelled"],
+                    key="inc_status_filter"
+                )
+                filtered = incoming if status_filter == "All" else [
+                    o for o in incoming if o["status"] == status_filter
+                ]
+
+                if not filtered:
+                    st.info(f"No orders with status: {status_filter}")
+                else:
+                    for o in filtered:
+                        prod   = o.get("products") or {}
+                        buyer  = o.get("profiles") or {}
+                        status = o.get("status", "pending")
+                        status_icon = {"pending":"🟡","confirmed":"🟢","delivered":"✅","cancelled":"🔴"}.get(status,"⚪")
+
+                        with st.container(border=True):
+                            c1, c2, c3 = st.columns([4, 2, 2])
+
+                            with c1:
+                                st.markdown(
+                                    f"**{prod.get('product_name','Unknown')}** · "
+                                    f"{prod.get('sector','')} · Grade **{prod.get('quality_grade','')}**"
+                                )
+                                st.caption(
+                                    f"👤 Buyer: **{buyer.get('full_name','Unknown')}** · "
+                                    f"📞 {buyer.get('phone','N/A')} · 📍 {buyer.get('region','N/A')}"
+                                )
+                                st.caption(
+                                    f"📅 Ordered: {o.get('created_at','')[:10]}  ·  "
+                                    f"{status_icon} **{status.capitalize()}**"
+                                )
+                                if o.get("notes"):
+                                    st.caption(f"📝 {o['notes']}")
+
+                            with c2:
+                                st.metric("Qty",   f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
+                                st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
+
+                            with c3:
+                                if status == "pending":
+                                    if st.button("✅ Confirm", key=f"inc_confirm_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update({
+                                                "status": "confirmed",
+                                                "producer_confirmed": True,
+                                            }).eq("id", o["id"]).execute()
+                                            send_notification(
+                                                recipient_id=o["buyer_id"],
+                                                title="✅ Order Confirmed by Producer",
+                                                message=(
+                                                    f"Your order for **{prod.get('product_name','')}** "
+                                                    f"({o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}) "
+                                                    f"has been confirmed. Total: {o.get('total_price_birr',0):,.0f} Birr."
+                                                ),
+                                                notif_type="success",
+                                                order_id=str(o["id"]),
+                                            )
+                                            st.success("Order confirmed.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                                    if st.button("❌ Cancel", key=f"inc_cancel_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update(
+                                                {"status": "cancelled"}
+                                            ).eq("id", o["id"]).execute()
+                                            send_notification(
+                                                recipient_id=o["buyer_id"],
+                                                title="❌ Order Cancelled by Producer",
+                                                message=(
+                                                    f"Your order for **{prod.get('product_name','')}** "
+                                                    f"has been cancelled by the producer."
+                                                ),
+                                                notif_type="warning",
+                                                order_id=str(o["id"]),
+                                            )
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+
+                                elif status == "confirmed":
+                                    if st.button("🚚 Mark Delivered", key=f"inc_deliver_{o['id']}", use_container_width=True):
+                                        try:
+                                            supabase.table("orders").update(
+                                                {"status": "delivered"}
+                                            ).eq("id", o["id"]).execute()
+                                            send_notification(
+                                                recipient_id=o["buyer_id"],
+                                                title="🚚 Order Delivered",
+                                                message=(
+                                                    f"Your order for **{prod.get('product_name','')}** "
+                                                    f"has been marked as delivered. Please confirm receipt."
+                                                ),
+                                                notif_type="success",
+                                                order_id=str(o["id"]),
+                                            )
+                                            st.success("Marked as delivered.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Failed: {e}")
+                                else:
+                                    st.caption(f"No actions for **{status}** orders.")
 
 def show_merchant(profile):
     st.title("🏬 Merchant Dashboard")
