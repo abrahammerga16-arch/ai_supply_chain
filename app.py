@@ -1272,48 +1272,115 @@ def show_producer(profile):
                                 st.metric("Qty",   f"{o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}")
                                 st.metric("Total", f"{o.get('total_price_birr',0):,.0f} Birr")
 
-                            with c3:
-                                if status == "pending":
-                                    if st.button("✅ Confirm", key=f"inc_confirm_{o['id']}", use_container_width=True):
-                                        try:
-                                            supabase.table("orders").update({
-                                                "status": "confirmed",
-                                                "producer_confirmed": True,
-                                            }).eq("id", o["id"]).execute()
-                                            send_notification(
-                                                recipient_id=o["buyer_id"],
-                                                title="✅ Order Confirmed by Producer",
-                                                message=(
-                                                    f"Your order for **{prod.get('product_name','')}** "
-                                                    f"({o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}) "
-                                                    f"has been confirmed. Total: {o.get('total_price_birr',0):,.0f} Birr."
-                                                ),
-                                                notif_type="success",
-                                                order_id=str(o["id"]),
-                                            )
-                                            st.success("Order confirmed.")
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Failed: {e}")
+                            # Detect merchant-initiated agreement orders
+                        is_merch_initiated = (
+                            bool(o.get("agreement_delivery_date"))
+                            and bool(o.get("merchant_confirmed"))
+                            and not bool(o.get("producer_confirmed"))
+                        )
 
-                                    if st.button("❌ Cancel", key=f"inc_cancel_{o['id']}", use_container_width=True):
-                                        try:
-                                            supabase.table("orders").update(
-                                                {"status": "cancelled"}
-                                            ).eq("id", o["id"]).execute()
-                                            send_notification(
-                                                recipient_id=o["buyer_id"],
-                                                title="❌ Order Cancelled by Producer",
-                                                message=(
-                                                    f"Your order for **{prod.get('product_name','')}** "
-                                                    f"has been cancelled by the producer."
-                                                ),
-                                                notif_type="warning",
-                                                order_id=str(o["id"]),
-                                            )
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Failed: {e}")
+                        # Show agreement preview for merchant-initiated pending orders
+                        if is_merch_initiated and status == "pending":
+                            agr_delivery = o.get("agreement_delivery_date", "")[:10]
+                            agr_payment  = o.get("agreement_payment_method", "N/A")
+                            agr_notes    = o.get("notes") or ""
+                            qty          = float(o.get("quantity_ordered", 0))
+                            total        = float(o.get("total_price_birr", 0))
+                            unit_price   = (total / qty) if qty else 0
+                            st.info(
+                                f"📋 **Merchant-initiated agreement order**\n\n"
+                                f"🗓 Delivery: **{agr_delivery}** · 💳 Payment: **{agr_payment}**"
+                                + (f"\n\n📝 Notes: {agr_notes}" if agr_notes else ""),
+                            )
+
+                        with c3:
+                                if status == "pending":
+                                    if is_merch_initiated:
+                                        # Accept → sets producer_confirmed=True, both confirmed → confirmed status
+                                        if st.button("✅ Accept Agreement", key=f"inc_accept_{o['id']}", use_container_width=True, type="primary"):
+                                            try:
+                                                supabase.table("orders").update({
+                                                    "status": "confirmed",
+                                                    "producer_confirmed": True,
+                                                }).eq("id", o["id"]).execute()
+                                                send_notification(
+                                                    recipient_id=o["buyer_id"],
+                                                    title="✅ Agreement Accepted by Producer",
+                                                    message=(
+                                                        f"Your supply agreement for **{prod.get('product_name','')}** "
+                                                        f"({o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}) "
+                                                        f"has been accepted. Delivery by {o.get('agreement_delivery_date','')[:10]}. "
+                                                        f"Total: {o.get('total_price_birr',0):,.0f} Birr."
+                                                    ),
+                                                    notif_type="success",
+                                                    order_id=str(o["id"]),
+                                                )
+                                                st.success("Agreement accepted — order confirmed.")
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Failed: {e}")
+
+                                        if st.button("❌ Decline Agreement", key=f"inc_decline_{o['id']}", use_container_width=True):
+                                            try:
+                                                supabase.table("orders").update(
+                                                    {"status": "cancelled"}
+                                                ).eq("id", o["id"]).execute()
+                                                send_notification(
+                                                    recipient_id=o["buyer_id"],
+                                                    title="❌ Agreement Declined by Producer",
+                                                    message=(
+                                                        f"Your supply agreement request for "
+                                                        f"**{prod.get('product_name','')}** "
+                                                        f"has been declined by the producer."
+                                                    ),
+                                                    notif_type="warning",
+                                                    order_id=str(o["id"]),
+                                                )
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Failed: {e}")
+                                    else:
+                                        # Regular order — original Confirm / Cancel
+                                        if st.button("✅ Confirm", key=f"inc_confirm_{o['id']}", use_container_width=True):
+                                            try:
+                                                supabase.table("orders").update({
+                                                    "status": "confirmed",
+                                                    "producer_confirmed": True,
+                                                }).eq("id", o["id"]).execute()
+                                                send_notification(
+                                                    recipient_id=o["buyer_id"],
+                                                    title="✅ Order Confirmed by Producer",
+                                                    message=(
+                                                        f"Your order for **{prod.get('product_name','')}** "
+                                                        f"({o.get('quantity_ordered',0):,.1f} {prod.get('unit','')}) "
+                                                        f"has been confirmed. Total: {o.get('total_price_birr',0):,.0f} Birr."
+                                                    ),
+                                                    notif_type="success",
+                                                    order_id=str(o["id"]),
+                                                )
+                                                st.success("Order confirmed.")
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Failed: {e}")
+
+                                        if st.button("❌ Cancel", key=f"inc_cancel_{o['id']}", use_container_width=True):
+                                            try:
+                                                supabase.table("orders").update(
+                                                    {"status": "cancelled"}
+                                                ).eq("id", o["id"]).execute()
+                                                send_notification(
+                                                    recipient_id=o["buyer_id"],
+                                                    title="❌ Order Cancelled by Producer",
+                                                    message=(
+                                                        f"Your order for **{prod.get('product_name','')}** "
+                                                        f"has been cancelled by the producer."
+                                                    ),
+                                                    notif_type="warning",
+                                                    order_id=str(o["id"]),
+                                                )
+                                                st.rerun()
+                                            except Exception as e:
+                                                st.error(f"Failed: {e}")
 
                                 elif status == "confirmed":
                                     if st.button("🚚 Mark Delivered", key=f"inc_deliver_{o['id']}", use_container_width=True):
@@ -1815,33 +1882,64 @@ def show_merchant(profile):
                         )
                         render_fraud_badge(risk)
 
-                        if st.button("🛒 Place Order", key=f"m_order_{p['id']}", use_container_width=True):
-                            if risk["risk_level"] == "High":
-                                st.warning("⚠️ High fraud risk detected — order still placed but proceed with caution.")
-                            try:
-                                supabase.table("orders").insert({
-                                    "product_id": p["id"],
-                                    "buyer_id": st.session_state.user.id,
-                                    "quantity_ordered": qty_order,
-                                    "total_price_birr": total_birr,
-                                    "status": "pending",
-                                    "fraud_risk_level": risk["risk_level"],
-                                    "fraud_probability": risk["fraud_probability"],
-                                }).execute()
-                                send_notification(
-                                    recipient_id=p["producer_id"],
-                                    title="New Order Received",
-                                    message=(
-                                        f"{profile.get('full_name','A merchant')} ordered "
-                                        f"{qty_order:,.1f} {p['unit']} of {p['product_name']} "
-                                        f"({total_birr:,.0f} Birr). Please confirm."
-                                    ),
-                                    notif_type="info",
-                                )
-                                st.success(f"✅ Order placed — {total_birr:,.0f} Birr. Producer notified.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Order failed: {e}")
+                    # ── Agreement fields (full width, below columns) ──
+                    import datetime as _dt
+                    with st.expander("📋 Agreement Details (required before placing order)", expanded=False):
+                        ag1, ag2 = st.columns(2)
+                        with ag1:
+                            default_delivery = _dt.date.today() + _dt.timedelta(days=14)
+                            browse_delivery = st.date_input(
+                                "Requested Delivery Date",
+                                value=default_delivery,
+                                min_value=_dt.date.today() + _dt.timedelta(days=1),
+                                key=f"m_browse_delivery_{p['id']}",
+                            )
+                        with ag2:
+                            browse_payment = st.selectbox(
+                                "Payment Method",
+                                ["Bank Transfer", "Cash on Delivery", "Mobile Money", "Letter of Credit"],
+                                key=f"m_browse_payment_{p['id']}",
+                            )
+                        browse_notes = st.text_input(
+                            "Special conditions (optional)",
+                            placeholder="e.g. Grade A only, deliver to warehouse gate…",
+                            key=f"m_browse_notes_{p['id']}",
+                        )
+
+                    if st.button("🛒 Place Order with Agreement", key=f"m_order_{p['id']}", use_container_width=True):
+                        if risk["risk_level"] == "High":
+                            st.warning("⚠️ High fraud risk detected — order still placed but proceed with caution.")
+                        try:
+                            supabase.table("orders").insert({
+                                "product_id": p["id"],
+                                "buyer_id": st.session_state.user.id,
+                                "quantity_ordered": qty_order,
+                                "total_price_birr": total_birr,
+                                "status": "pending",
+                                "fraud_risk_level": risk["risk_level"],
+                                "fraud_probability": risk["fraud_probability"],
+                                "merchant_confirmed": True,
+                                "producer_confirmed": False,
+                                "agreement_delivery_date": browse_delivery.isoformat(),
+                                "agreement_payment_method": browse_payment,
+                                "notes": browse_notes.strip() or None,
+                            }).execute()
+                            send_notification(
+                                recipient_id=p["producer_id"],
+                                title="📋 New Order with Agreement Received",
+                                message=(
+                                    f"{profile.get('full_name','A merchant')} ordered "
+                                    f"{qty_order:,.1f} {p['unit']} of {p['product_name']} "
+                                    f"({total_birr:,.0f} Birr) with a supply agreement. "
+                                    f"Delivery: {browse_delivery.strftime('%d %b %Y')} · "
+                                    f"Payment: {browse_payment}. Please Accept or Decline in Incoming Orders."
+                                ),
+                                notif_type="info",
+                            )
+                            st.success(f"✅ Order placed — {total_birr:,.0f} Birr. Producer notified.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Order failed: {e}")
 
     # ── TAB 2: MY ORDERS ─────────────────────────────────────
     with tab_orders:
