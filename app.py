@@ -1717,7 +1717,7 @@ def show_merchant(profile):
                                              "total_price_birr": new_total,
                                              "notes": new_notes, 
                                              "status": new_status,}) # <- Added the missing ')' here
-                                     except Exception as e:
+                                    except Exception as e:
                                         st.error(f"Error updating order: {e}")
         
         
