@@ -1718,8 +1718,8 @@ def show_merchant(profile):
                                             "notes": new_notes, 
                                             "status": new_status,
                                             }) # <- Added the missing ')' here
-                                       except Exception as e:
-                                           st.error(f"Error updating order: {e}")
+                                    except Exception as e:
+                                        st.error(f"Error updating order: {e}")
         
         
         
