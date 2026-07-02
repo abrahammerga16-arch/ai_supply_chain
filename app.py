@@ -645,7 +645,7 @@ def render_sidebar():
             profile = st.session_state.get("profile") or get_profile(st.session_state.user.id)
             st.session_state.profile = profile
             role = profile["role"] if profile else None
-            st.success(f'Welcome, {profile["full_name"] if profile else 'User'}')
+            st.success(f"Welcome, {profile['full_name'] if profile else 'User'}")
             st.caption(f'Role: {profile["role"].capitalize() if profile else 'N/A'}')
             st.caption(f'Region: {profile["region"] if profile else 'N/A'}')
             unread = get_unread_count(st.session_state.user.id)
