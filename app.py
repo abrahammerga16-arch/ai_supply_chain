@@ -1844,4 +1844,4 @@ def show_merchant(profile):
                         with col_a:
                             st.markdown(f"**{pname}**")
                             st.caption(f"Seller: {seller_name} · 📞 {seller_phone}")
-                            st.caption(f"📍 {prod.get('region','N/A')} 
+                            st.caption(f"📍 {prod.get('region','N/A')"} 
