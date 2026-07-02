@@ -25,6 +25,44 @@ from src.price_engine import recommend_price
 from src.fraud_engine import check_fraud_risk
 from src.demand_engine import forecast_demand
 
+
+# Add model loading status check
+@st.cache_resource
+def check_models_loaded():
+    """Check if all models are loaded successfully"""
+    status = {}
+    try:
+        from src.demand_engine import load_demand_models
+        load_demand_models()
+        status["demand"] = True
+    except Exception as e:
+        status["demand"] = str(e)
+    
+    try:
+        from src.fraud_engine import load_fraud_model
+        load_fraud_model()
+        status["fraud"] = True
+    except Exception as e:
+        status["fraud"] = str(e)
+    
+    try:
+        from src.matching_engine import load_matching_model
+        load_matching_model()
+        status["matching"] = True
+    except Exception as e:
+        status["matching"] = str(e)
+    
+    return status
+
+# Add to sidebar or landing page
+if st.session_state.get("user"):
+    model_status = check_models_loaded()
+    with st.sidebar.expander("🤖 AI Models Status"):
+        for model, status in model_status.items():
+            if status is True:
+                st.success(f"✅ {model.capitalize()} model loaded")
+            else:
+                st.error(f"❌ {model.capitalize()}: {status}")
 # ════════════════════════════════════════════════════════════
 # PAGE CONFIG (called once, before any st.* output)
 # ════════════════════════════════════════════════════════════
