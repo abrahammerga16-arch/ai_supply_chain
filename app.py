@@ -473,20 +473,20 @@ def render_browse_tab(role, profile):
         with st.container(border=True):
             c1, c2, c3 = st.columns([3, 2, 2])
             with c1:
-                st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                st.markdown(f'**{p["product_name"]}** · {p["sector"]} · Grade **{p["quality_grade"]}**')
                 st.caption(p.get("description") or "No description")
                 seller = p.get("profiles")
                 if seller:
-                    st.caption(f"👤 {seller.get('full_name','Unknown')} · 📍 {p['region']}")
+                    st.caption(f'👤 {seller.get('full_name','Unknown')} · 📍 {p["region"]}')
             with c2:
-                st.metric("Price", f"{p['price_birr']:,.0f} Birr")
-                st.caption(f"Available: {p['quantity']} {p['unit']}")
+                st.metric("Price", f'{p["price_birr"]:,.0f} Birr')
+                st.caption(f'Available: {p["quantity"]} {p["unit"]}')
             with c3:
                 if role in ("merchant", "customer"):
                     _qty_max = max(1.0, float(p["quantity"]))
                     qty_to_order = st.number_input(
                         "Qty", min_value=1.0, max_value=_qty_max,
-                        value=min(1.0, _qty_max), key=f"qty_{p['id']}"
+                        value=min(1.0, _qty_max), key=f'qty_{p["id"]}'
                     )
                     total = qty_to_order * p["price_birr"]
                     st.caption(f"Total: **{total:,.0f} Birr**")
@@ -496,7 +496,7 @@ def render_browse_tab(role, profile):
                         quantity=qty_to_order, price_birr=p["price_birr"],
                     )
                     render_fraud_badge(risk)
-                    if st.button("🛒 Place Order", key=f"order_{p['id']}"):
+                    if st.button("🛒 Place Order", key=f'order_{p["id"]}'):
                         if risk["risk_level"] == "High":
                             st.warning("⚠️ High fraud risk — proceed with caution.")
                         try:
@@ -562,14 +562,14 @@ def render_notifications_tab(user_id):
                 f"<div style='background:{bg_map.get(ntype,'#eaf2fb')};border-radius:8px;"
                 f"padding:14px 16px;margin-bottom:10px;"
                 f"border-left:4px solid #{border_map.get(ntype,'1a5276')};'>"
-                f"<b>{icon_map.get(ntype,'🔔')} {n['title']}</b><br>"
-                f"{n['message']}<br>"
+                f'<b>{icon_map.get(ntype,'🔔')} {n["title"]}</b><br>'
+                f'{n["message"]}<br>'
                 f"<small style='color:#888;'>{_fmt_dt(n.get('created_at',''))}</small></div>",
                 unsafe_allow_html=True
             )
             ncol1, _ = st.columns([1, 5])
             with ncol1:
-                if st.button("✓ Read", key=f"read_{n['id']}", use_container_width=True):
+                if st.button("✓ Read", key=f'read_{n["id"]}', use_container_width=True):
                     try:
                         supabase.table("notifications").update({"is_read":True}).eq("id",n["id"]).execute()
                         st.rerun()
@@ -645,9 +645,9 @@ def render_sidebar():
             profile = st.session_state.get("profile") or get_profile(st.session_state.user.id)
             st.session_state.profile = profile
             role = profile["role"] if profile else None
-            st.success(f"Welcome, {profile['full_name'] if profile else 'User'}")
-            st.caption(f"Role: {profile['role'].capitalize() if profile else 'N/A'}")
-            st.caption(f"Region: {profile['region'] if profile else 'N/A'}")
+            st.success(f'Welcome, {profile["full_name"] if profile else 'User'}')
+            st.caption(f'Role: {profile["role"].capitalize() if profile else 'N/A'}')
+            st.caption(f'Region: {profile["region"] if profile else 'N/A'}')
             unread = get_unread_count(st.session_state.user.id)
             if unread:
                 st.info(f"🔔 {unread} unread notification(s)")
@@ -742,8 +742,8 @@ def show_producer(profile):
             try:
                 rec = recommend_price(sector=p_sector, product=p_name, region=p_region, quality_grade=p_quality)
                 st.info(
-                    f"💰 AI Suggested Price: **{rec['recommended_price']:,.0f} Birr** "
-                    f"(range: {rec['min_price']:,.0f} – {rec['max_price']:,.0f} Birr)"
+                    f'💰 AI Suggested Price: **{rec["recommended_price"]:,.0f} Birr** '
+                    f'(range: {rec["min_price"]:,.0f} – {rec["max_price"]:,.0f} Birr)'
                 )
             except Exception:
                 pass
@@ -784,12 +784,12 @@ def show_producer(profile):
             except Exception:
                 prod_row = {}
 
-            st.markdown(f"### 🤝 Draft Agreement with **{m['name']}**")
+            st.markdown(f'### 🤝 Draft Agreement with **{m["name"]}**')
             with st.container(border=True):
                 col_contact, col_terms = st.columns(2)
                 with col_contact:
                     st.markdown("#### 📞 Merchant Contact")
-                    st.markdown(f"**Name:** {m['name']}")
+                    st.markdown(f'**Name:** {m["name"]}')
                     st.markdown(f"**Region:** {m.get('region','N/A')}")
                     st.markdown(f"**Phone:** {m.get('phone') or 'Not provided'}")
                     st.markdown(f"**Preferred Product:** {m.get('preferred_product') or 'N/A'}")
@@ -907,8 +907,8 @@ def show_producer(profile):
                 with st.container(border=True):
                     c1, c2 = st.columns([3, 1])
                     with c1:
-                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade {p['quality_grade']}")
-                        st.caption(f"{p['quantity']} {p['unit']} @ {p['price_birr']:,.0f} Birr | {p['region']}")
+                        st.markdown(f'**{p["product_name"]}** · {p["sector"]} · Grade {p["quality_grade"]}')
+                        st.caption(f'{p["quantity"]} {p["unit"]} @ {p["price_birr"]:,.0f} Birr | {p["region"]}')
                         st.caption(p.get("description") or "")
                     with c2:
                         st.caption("🟢 Active" if p["is_available"] else "🔴 Inactive")
@@ -916,7 +916,7 @@ def show_producer(profile):
                     col_toggle, col_edit, col_delete = st.columns(3)
                     with col_toggle:
                         label = "⏸ Deactivate" if p["is_available"] else "▶ Activate"
-                        if st.button(label, key=f"toggle_{p['id']}", use_container_width=True):
+                        if st.button(label, key=f'toggle_{p["id"]}', use_container_width=True):
                             try:
                                 supabase.table("products").update(
                                     {"is_available": not p["is_available"]}
@@ -925,13 +925,13 @@ def show_producer(profile):
                             except Exception as e:
                                 st.error(f"Update failed: {e}")
                     with col_edit:
-                        if st.button("✏️ Edit", key=f"edit_btn_{p['id']}", use_container_width=True):
+                        if st.button("✏️ Edit", key=f'edit_btn_{p["id"]}', use_container_width=True):
                             st.session_state.edit_product_id = p["id"]
                     with col_delete:
-                        if st.button("🗑️ Delete", key=f"del_{p['id']}", use_container_width=True):
+                        if st.button("🗑️ Delete", key=f'del_{p["id"]}', use_container_width=True):
                             try:
                                 supabase.table("products").delete().eq("id", p["id"]).execute()
-                                st.success(f"'{p['product_name']}' deleted.")
+                                st.success("'{}' deleted.".format(p["product_name"]))
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Delete failed: {e}")
@@ -939,7 +939,7 @@ def show_producer(profile):
                     if st.session_state.edit_product_id == p["id"]:
                         st.markdown("---")
                         st.markdown("**✏️ Edit Product**")
-                        with st.form(f"edit_form_{p['id']}"):
+                        with st.form(f'edit_form_{p["id"]}'):
                             e_name    = st.text_input("Product Name", value=p["product_name"])
                             e_sector  = st.selectbox("Sector", SECTORS,
                                                       index=SECTORS.index(p["sector"]) if p["sector"] in SECTORS else 0)
@@ -975,7 +975,7 @@ def show_producer(profile):
                                 st.rerun()
 
                     st.markdown("---")
-                    if st.button("🤖 Find Best Merchant Matches", key=f"match_{p['id']}", use_container_width=True):
+                    if st.button("🤖 Find Best Merchant Matches", key=f'match_{p["id"]}', use_container_width=True):
                         with st.spinner("Scoring merchants..."):
                             try:
                                 merchants_raw = supabase.table("profiles").select("*").eq("role","merchant").execute().data
@@ -1018,7 +1018,7 @@ def show_producer(profile):
                                             mcol1, mcol2 = st.columns([3, 1])
                                             with mcol1:
                                                 st.write(
-                                                    f"{badge} **{r['name']}** — {pct:.1f}% match · "
+                                                    f'{badge} **{r["name"]}** — {pct:.1f}% match · '
                                                     f"{r.get('region','N/A')} · "
                                                     f"wants {r.get('preferred_product') or 'N/A'} · "
                                                     f"📞 {r.get('phone') or 'N/A'}"
@@ -1028,10 +1028,10 @@ def show_producer(profile):
                                                     "Qty", min_value=0.1,
                                                     max_value=max(0.1, float(p["quantity"])),
                                                     value=min(10.0, max(0.1, float(p["quantity"]))),
-                                                    step=1.0, key=f"reqqty_{p['id']}_{r['id']}"
+                                                    step=1.0, key=f'reqqty_{p["id"]}_{r["id"]}'
                                                 )
                                                 if st.button("📩 Send Order Request",
-                                                             key=f"agr_{p['id']}_{r['id']}",
+                                                             key=f'agr_{p["id"]}_{r["id"]}',
                                                              use_container_width=True):
                                                     try:
                                                         req_total = req_qty * p["price_birr"]
@@ -1046,7 +1046,7 @@ def show_producer(profile):
                                                             "merchant_confirmed": False,
                                                             "notes": (
                                                                 f"Producer-initiated order request for "
-                                                                f"{p['product_name']}. No agreement yet — "
+                                                                f'{p["product_name"]}. No agreement yet — '
                                                                 f"awaiting merchant confirmation."
                                                             ),
                                                         }).execute()
@@ -1056,14 +1056,14 @@ def show_producer(profile):
                                                             title="📩 New Order Request From Producer",
                                                             message=(
                                                                 f"**{profile.get('full_name','A producer')}** wants to sell you "
-                                                                f"**{p['product_name']}** — {req_qty:,.1f} {p['unit']} @ "
-                                                                f"{p['price_birr']:,.0f} Birr/unit (Total: {req_total:,.0f} Birr). "
+                                                                f'**{p["product_name"]}** — {req_qty:,.1f} {p["unit"]} @ '
+                                                                f'{p["price_birr"]:,.0f} Birr/unit (Total: {req_total:,.0f} Birr). '
                                                                 f"Go to 🛒 My Orders to confirm or decline."
                                                             ),
                                                             notif_type="info",
                                                             order_id=str(new_order_id) if new_order_id else None,
                                                         )
-                                                        st.success(f"📩 Order request sent to {r['name']}.")
+                                                        st.success(f'📩 Order request sent to {r["name"]}.')
                                                         st.rerun()
                                                     except Exception as e:
                                                         st.error(f"Failed: {e}")
@@ -1081,7 +1081,7 @@ def show_producer(profile):
                         hist_series = fc["historical"] + [None] * 4
                         fc_series   = [None] * 7 + [fc["historical"][-1]] + fc["forecast"]
                         chart_data  = pd.DataFrame({"Actual": hist_series, "Forecast": fc_series}, index=all_labels)
-                        st.caption(f"📈 Demand Forecast | {trend_icon} | R²={fc['r2']:.2f} RMSE=±{fc['rmse']:,.0f}")
+                        st.caption(f'📈 Demand Forecast | {trend_icon} | R²={fc["r2"]:.2f} RMSE=±{fc["rmse"]:,.0f}')
                         st.line_chart(chart_data, color=["#4A90D9","#F5A623"], height=180)
                     else:
                         st.caption("📈 Demand forecast unavailable.")
@@ -1165,7 +1165,7 @@ def show_producer(profile):
                             with col_a:
                                 st.markdown(f"**{pname}** · {prod.get('sector','N/A')} · Grade **{prod.get('quality_grade','N/A')}**")
                                 st.caption(f"👤 Buyer: **{buyer_name}** · 📞 {buyer_phone} · 📍 {buyer_region}")
-                                st.caption(f"Qty: **{o['quantity_ordered']} {unit}** · Region: {prod.get('region','N/A')}")
+                                st.caption(f'Qty: **{o["quantity_ordered"]} {unit}** · Region: {prod.get('region','N/A')}')
                                 if is_agreement:
                                     st.caption(
                                         f"📑 **Agreement Order** · Delivery: {o.get('agreement_delivery_date','N/A')} · "
@@ -1174,13 +1174,13 @@ def show_producer(profile):
                                 elif is_producer_request:
                                     st.caption("📩 **Order request you sent** · awaiting merchant response")
                                 if o.get("notes"):
-                                    st.caption(f"📝 {o['notes']}")
+                                    st.caption(f'📝 {o["notes"]}')
                                 risk_lvl = o.get("fraud_risk_level","Unknown")
                                 if risk_lvl and risk_lvl != "Unknown":
                                     rb = {"Low":"🟢","Medium":"🟡","High":"🔴"}.get(risk_lvl,"⚪")
                                     st.caption(f"{rb} Fraud Risk: **{risk_lvl}**")
                             with col_b:
-                                st.metric("Order Value", f"{o['total_price_birr']:,.0f} Birr")
+                                st.metric("Order Value", f'{o["total_price_birr"]:,.0f} Birr')
                                 st.caption(status_badge)
                                 created = o.get("created_at","")
                                 if created:
@@ -1201,11 +1201,11 @@ def show_producer(profile):
                                     is_producer_request and merch_confirmed and o["status"] == "confirmed"
                                 )
                                 if ready_for_agreement:
-                                    if st.button("📝 Create Agreement", key=f"mk_agr_{o['id']}", use_container_width=True):
+                                    if st.button("📝 Create Agreement", key=f'mk_agr_{o["id"]}', use_container_width=True):
                                         st.session_state.agreement_pending_order_id = o["id"]
                                         st.rerun()
                                 elif o["status"] == "pending" and cls["is_regular_order"]:
-                                    if st.button("✅ Confirm Order", key=f"inc_confirm_{o['id']}", use_container_width=True):
+                                    if st.button("✅ Confirm Order", key=f'inc_confirm_{o["id"]}', use_container_width=True):
                                         try:
                                             supabase.table("orders").update({
                                                 "status": "confirmed", "producer_confirmed": True,
@@ -1226,7 +1226,7 @@ def show_producer(profile):
                                                 recipient_id=o["buyer_id"], title="✅ Order Confirmed",
                                                 message=(
                                                     f"Your order for **{pname}** ({qty_ordered:,.1f} {unit}) "
-                                                    f"worth **{o['total_price_birr']:,.0f} Birr** has been confirmed."
+                                                    f'worth **{o["total_price_birr"]:,.0f} Birr** has been confirmed.'
                                                 ),
                                                 notif_type="success", order_id=o["id"],
                                             )
@@ -1234,7 +1234,7 @@ def show_producer(profile):
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
-                                    if st.button("❌ Cancel Order", key=f"inc_cancel_{o['id']}", use_container_width=True):
+                                    if st.button("❌ Cancel Order", key=f'inc_cancel_{o["id"]}', use_container_width=True):
                                         try:
                                             supabase.table("orders").update({"status":"cancelled"}).eq("id",o["id"]).execute()
                                             send_notification(
@@ -1247,7 +1247,7 @@ def show_producer(profile):
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
                                 elif o["status"] == "confirmed" and cls["is_regular_order"]:
-                                    if st.button("🚚 Mark as Delivered", key=f"inc_deliver_{o['id']}", use_container_width=True):
+                                    if st.button("🚚 Mark as Delivered", key=f'inc_deliver_{o["id"]}', use_container_width=True):
                                         try:
                                             supabase.table("orders").update({"status":"delivered"}).eq("id",o["id"]).execute()
                                             send_notification(
@@ -1266,8 +1266,8 @@ def show_producer(profile):
                                     buyer_profile = buyer_profile_res.data[0] if buyer_profile_res.data else {}
                                 except Exception:
                                     buyer_profile = {}
-                                render_agreement_terms_inline(o, prod, profile, buyer_profile, f"inc_{o['id']}")
-                                if st.button("📄 Download Agreement PDF", key=f"inc_pdf_{o['id']}", use_container_width=True):
+                                render_agreement_terms_inline(o, prod, profile, buyer_profile, f'inc_{o["id"]}')
+                                if st.button("📄 Download Agreement PDF", key=f'inc_pdf_{o["id"]}', use_container_width=True):
                                     delivery_str = datetime.date.today()
                                     payment_str  = "Bank Transfer"
                                     if o.get("agreement_delivery_date"):
@@ -1374,7 +1374,7 @@ def show_producer(profile):
     # ── PROFILE ───────────────────────────────────────────────
     with tab_profile:
         st.subheader("⚙️ My Profile")
-        st.caption(f"**{profile['full_name']}** · Producer · {profile['region']}")
+        st.caption(f'**{profile["full_name"]}** · Producer · {profile["region"]}')
         st.divider()
         st.markdown("### 📊 My Stats")
         try:
@@ -1448,22 +1448,22 @@ def show_merchant(profile):
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([3, 2, 2])
                     with c1:
-                        st.markdown(f"**{p['product_name']}** · {p['sector']} · Grade **{p['quality_grade']}**")
+                        st.markdown(f'**{p["product_name"]}** · {p["sector"]} · Grade **{p["quality_grade"]}**')
                         st.caption(p.get("description") or "No description")
-                        st.caption(f"👤 {seller.get('full_name','Unknown')} · 📍 {p['region']}")
+                        st.caption(f'👤 {seller.get('full_name','Unknown')} · 📍 {p["region"]}')
                         st.caption(f"{mc} Match Score: **{pct}%**")
                     with c2:
-                        st.metric("Price", f"{p['price_birr']:,.0f} Birr")
-                        st.caption(f"Available: {p['quantity']} {p['unit']}")
+                        st.metric("Price", f'{p["price_birr"]:,.0f} Birr')
+                        st.caption(f'Available: {p["quantity"]} {p["unit"]}')
                     with c3:
                         _qty_max = max(1.0, float(p["quantity"]))
                         qty_to_order = st.number_input(
                             "Qty", min_value=1.0, max_value=_qty_max,
-                            value=min(1.0, _qty_max), key=f"match_qty_{p['id']}"
+                            value=min(1.0, _qty_max), key=f'match_qty_{p["id"]}'
                         )
                         total = qty_to_order * p["price_birr"]
                         st.caption(f"Total: **{total:,.0f} Birr**")
-                        if st.button("🛒 Order Now", key=f"match_order_{p['id']}"):
+                        if st.button("🛒 Order Now", key=f'match_order_{p["id"]}'):
                             risk = get_fraud_risk(
                                 sector=p["sector"], product=p["product_name"], region=p["region"],
                                 payment_method="Bank Transfer", quantity=qty_to_order, price_birr=p["price_birr"],
@@ -1562,11 +1562,11 @@ def show_merchant(profile):
                             st.markdown(f"**{pname}**")
                             st.caption(f"Seller: {seller_name} · 📞 {seller_phone}")
                             st.caption(f"📍 {prod.get('region','N/A')} · {prod.get('sector','N/A')}")
-                            st.caption(f"Qty: {o['quantity_ordered']} {unit} · Grade: {prod.get('quality_grade','N/A')}")
+                            st.caption(f'Qty: {o["quantity_ordered"]} {unit} · Grade: {prod.get('quality_grade','N/A')}')
                             if o.get("notes"):
-                                st.caption(f"📝 {o['notes']}")
+                                st.caption(f'📝 {o["notes"]}')
                         with col_b:
-                            st.metric("Total", f"{o['total_price_birr']:,.0f} Birr")
+                            st.metric("Total", f'{o["total_price_birr"]:,.0f} Birr')
                             st.caption(status_badge)
                             risk_lvl = o.get("fraud_risk_level","Unknown")
                             if risk_lvl and risk_lvl != "Unknown":
@@ -1575,7 +1575,7 @@ def show_merchant(profile):
                         with col_c:
                             if is_producer_request:
                                 st.warning("📩 Order request from producer")
-                                if st.button("✅ Confirm Order", key=f"confirm_req_{o['id']}", use_container_width=True):
+                                if st.button("✅ Confirm Order", key=f'confirm_req_{o["id"]}', use_container_width=True):
                                     try:
                                         supabase.table("orders").update({
                                             "merchant_confirmed": True, "status": "confirmed",
@@ -1595,7 +1595,7 @@ def show_merchant(profile):
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Failed: {e}")
-                                if st.button("❌ Decline", key=f"decline_req_{o['id']}", use_container_width=True):
+                                if st.button("❌ Decline", key=f'decline_req_{o["id"]}', use_container_width=True):
                                     try:
                                         supabase.table("orders").update({"status":"cancelled"}).eq("id",o["id"]).execute()
                                         prod_producer_id = prod.get("producer_id")
@@ -1615,7 +1615,7 @@ def show_merchant(profile):
                                     st.success("🤝 Agreement Fully Signed")
                                 elif prod_confirmed and not merch_confirmed:
                                     st.warning("⏳ Awaiting Your Acceptance")
-                                    if st.button("✅ Accept Agreement", key=f"accept_agr_{o['id']}", use_container_width=True):
+                                    if st.button("✅ Accept Agreement", key=f'accept_agr_{o["id"]}', use_container_width=True):
                                         try:
                                             supabase.table("orders").update({
                                                 "merchant_confirmed": True, "status": "confirmed",
@@ -1632,7 +1632,7 @@ def show_merchant(profile):
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
-                                    if st.button("❌ Reject Agreement", key=f"reject_agr_{o['id']}", use_container_width=True):
+                                    if st.button("❌ Reject Agreement", key=f'reject_agr_{o["id"]}', use_container_width=True):
                                         try:
                                             supabase.table("orders").update({
                                                 "merchant_confirmed": False, "status": "cancelled",
@@ -1650,7 +1650,7 @@ def show_merchant(profile):
                                         except Exception as e:
                                             st.error(f"Failed: {e}")
                             elif is_regular_order and o["status"] == "pending":
-                                if st.button("❌ Cancel Order", key=f"cancel_{o['id']}", use_container_width=True):
+                                if st.button("❌ Cancel Order", key=f'cancel_{o["id"]}', use_container_width=True):
                                     try:
                                         supabase.table("orders").update({"status":"cancelled"}).eq("id",o["id"]).execute()
                                         st.success("Order cancelled.")
@@ -1665,8 +1665,8 @@ def show_merchant(profile):
                                 prod_profile = prod_profile[0] if prod_profile else {}
                             except Exception:
                                 prod_profile = {}
-                            render_agreement_terms_inline(o, prod, prod_profile, profile, f"my_{o['id']}")
-                            if st.button("📄 Download Agreement PDF", key=f"view_agr_pdf_{o['id']}", use_container_width=True):
+                            render_agreement_terms_inline(o, prod, prod_profile, profile, f'my_{o["id"]}')
+                            if st.button("📄 Download Agreement PDF", key=f'view_agr_pdf_{o["id"]}', use_container_width=True):
                                 delivery_str = datetime.date.today()
                                 payment_str  = "Bank Transfer"
                                 if o.get("agreement_delivery_date"):
@@ -1701,18 +1701,18 @@ def show_merchant(profile):
                                 with upd_col1:
                                     new_qty    = st.number_input("New Quantity", min_value=0.1,
                                                                   value=float(o["quantity_ordered"]), step=1.0,
-                                                                  key=f"upd_qty_{o['id']}")
+                                                                  key=f'upd_qty_{o["id"]}')
                                     new_status = st.selectbox("Status", ["pending","confirmed","delivered","cancelled"],
                                                                index=["pending","confirmed","delivered","cancelled"].index(o["status"]),
-                                                               key=f"upd_status_{o['id']}")
+                                                               key=f'upd_status_{o["id"]}')
                                 with upd_col2:
                                     unit_price = o["total_price_birr"] / o["quantity_ordered"] if o["quantity_ordered"] else 0
                                     new_total  = new_qty * unit_price
                                     st.metric("New Total", f"{new_total:,.0f} Birr")
-                                    new_notes  = st.text_area("Notes", value=o.get("notes") or "", key=f"upd_notes_{o['id']}")
-                                if st.button("💾 Save Changes", key=f"upd_save_{o['id']}", use_container_width=True):
+                                    new_notes  = st.text_area("Notes", value=o.get("notes") or "", key=f'upd_notes_{o["id"]}')
+                                if st.button("💾 Save Changes", key=f'upd_save_{o["id"]}', use_container_width=True):
                                     try:
                                         supabase.table("orders").update({
                                             "quantity_ordered": new_qty, "total_price_birr": new_total,
                                             "notes": new_notes, "status": new_status,
-                                  
+                          
