@@ -411,7 +411,7 @@ def render_agreement_terms_inline(order_row, product_row, producer_profile, merc
     delivery  = order_row.get("agreement_delivery_date") or "Not yet set"
     payment   = order_row.get("agreement_payment_method") or "Not yet set"
     notes     = order_row.get("notes") or ""
-    with st.expander("📋 Read Agreement Terms", expanded=False, key=f"terms_{container_key}"):
+    with st.expander("📋 Read Agreement Terms", expanded=False):
         st.markdown("#### Parties")
         pc1, pc2 = st.columns(2)
         with pc1:
@@ -1335,24 +1335,62 @@ def show_producer(profile):
                                                             "merchant_confirmed": False,
                                                             "notes": (
                                                                 f"Producer-initiated order request for "
-                                                                f'{p["product_name"]}. No agreement yet — '
-                                                                f"awaiting merchant confirmation."
+                                                                f'{p["product_name"]}. Awaiting merchant confirmation.'
                                                             ),
                                                         }).execute()
                                                         new_order_id = order_res.data[0]["id"] if order_res.data else None
+
+                                                        # Generate supply agreement PDF
+                                                        import datetime as _dt
+                                                        delivery_date = (_dt.date.today() + _dt.timedelta(days=14)).strftime("%d %B %Y")
+                                                        try:
+                                                            pdf_bytes = generate_agreement_pdf(
+                                                                producer_name=profile.get("full_name", "Producer"),
+                                                                producer_phone=profile.get("phone", ""),
+                                                                producer_region=profile.get("region", ""),
+                                                                merchant_name=r.get("name", "Merchant"),
+                                                                merchant_phone=r.get("phone", ""),
+                                                                merchant_region=r.get("region", ""),
+                                                                product_name=p["product_name"],
+                                                                sector=p.get("sector", ""),
+                                                                quality_grade=p.get("quality_grade", ""),
+                                                                quantity=req_qty,
+                                                                unit=p.get("unit", ""),
+                                                                price_per_unit=p["price_birr"],
+                                                                total_price=req_total,
+                                                                delivery_date=delivery_date,
+                                                                payment_method="Bank Transfer",
+                                                                notes="Producer-initiated order. Awaiting merchant confirmation.",
+                                                                agreement_id=str(new_order_id) if new_order_id else "DRAFT",
+                                                                producer_confirmed=True,
+                                                                merchant_confirmed=False,
+                                                            )
+                                                            fname = f'agreement_{p["product_name"].replace(" ","_")}_{r["name"].replace(" ","_")}.pdf'
+                                                            st.success(f'📩 Order request sent to {r["name"]}.')
+                                                            st.download_button(
+                                                                label="📄 Download Supply Agreement PDF",
+                                                                data=pdf_bytes,
+                                                                file_name=fname,
+                                                                mime="application/pdf",
+                                                                key=f'dl_agr_{p["id"]}_{r["id"]}',
+                                                                use_container_width=True,
+                                                            )
+                                                        except Exception as pdf_err:
+                                                            st.success(f'📩 Order request sent to {r["name"]}.')
+                                                            st.warning(f"PDF generation failed: {pdf_err}")
+
                                                         send_notification(
                                                             recipient_id=r["id"],
-                                                            title="📩 New Order Request From Producer",
+                                                            title="📩 New Order Request + Agreement From Producer",
                                                             message=(
                                                                 f"**{profile.get('full_name','A producer')}** wants to sell you "
-                                                                f'**{p["product_name"]}** — {req_qty:,.1f} {p["unit"]} @ '
+                                                                f'{p["product_name"]} — {req_qty:,.1f} {p["unit"]} @ '
                                                                 f'{p["price_birr"]:,.0f} Birr/unit (Total: {req_total:,.0f} Birr). '
-                                                                f"Go to 🛒 My Orders to confirm or decline."
+                                                                f"A supply agreement is attached. Go to 🛒 My Orders to confirm or decline."
                                                             ),
                                                             notif_type="info",
                                                             order_id=str(new_order_id) if new_order_id else None,
                                                         )
-                                                        st.success(f'📩 Order request sent to {r["name"]}.')
                                                         st.rerun()
                                                     except Exception as e:
                                                         st.error(f"Failed: {e}")
